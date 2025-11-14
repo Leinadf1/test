@@ -1,0 +1,73 @@
+!DOCTYPE html
+html lang=it
+head
+meta charset=UTF-8
+titleScanner Magazzinotitle
+style
+    body { font-family Arial; padding 20px; text-align center; }
+    #preview { width 90%; border 2px solid black; margin-bottom 20px; }
+    button { padding 15px; font-size 20px; margin 10px; width 40%; }
+style
+script src=httpscdnjs.cloudflare.comajaxlibsquagga0.12.1quagga.min.jsscript
+head
+body
+
+h2📦 Scanner Magazzinoh2
+
+video id=previewvideo
+
+h3 id=codeCODICE —h3
+
+button onclick=sendData('carico') style=background #4CAF50; colorwhite;CARICObutton
+button onclick=sendData('scarico') style=background #D32F2F; colorwhite;SCARICObutton
+
+script
+ Avvio scanner
+Quagga.init({
+    inputStream {
+        name Live,
+        type LiveStream,
+        target document.querySelector('#preview'),
+        constraints {
+            facingMode environment
+        }
+    },
+    decoder { readers [ean_reader, ean_13_reader, code_128_reader] }
+}, function(err) {
+    if (err) { console.error(err); return; }
+    Quagga.start();
+});
+
+ Legge il codice
+let lastCode = ;
+Quagga.onDetected(function(result) {
+    const code = result.codeResult.code;
+    if (code !== lastCode) {
+        lastCode = code;
+        document.getElementById(code).innerText = CODICE  + code;
+    }
+});
+
+ Invio al server Google Apps Script
+function sendData(type) {
+    if (!lastCode) {
+        alert(Scansiona prima un codice!);
+        return;
+    }
+
+    fetch(PASTE_WEBAPP_URL_HERE, {
+        method POST,
+        mode no-cors,
+        headers { Content-Type applicationjson },
+        body JSON.stringify({
+            barcode lastCode,
+            operazione type
+        })
+    });
+
+    alert(Operazione inviata!);
+}
+script
+
+body
+html
