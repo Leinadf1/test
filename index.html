@@ -1,42 +1,55 @@
+<!DOCTYPE html>
 <html>
   <head>
-    <meta charset="ISO-8859-1"> 
-    <!-- Shaka Player compiled library: -->
+    <meta charset="ISO-8859-1">
+    <title>Single Stream Player</title>
+
+    <!-- Shaka Player -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <title>Test Multi-Stream</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
+
     <style>
-        body { background-color: #262626; color: white; font-family: "Roboto", sans-serif; }
-        .center { margin: auto; width: 50%; text-align: center; }
-        video { width: 100%; height: 100%; }
-        select { margin-bottom: 20px; padding: 5px; font-size: 16px; }
+      body {
+        background-color: #262626;
+        color: white;
+        font-family: Arial, sans-serif;
+      }
+      .center {
+        margin: auto;
+        width: 50%;
+        text-align: center;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+      }
     </style>
   </head>
+
   <body>
     <div class="center">
-      <h2>Seleziona Stream</h2>
-      <select id="streamSelect">
-        <option value="dazn">DAZN</option>
-        <option value="skysport">Sky Sport Calcio</option>
-      </select>
+      <h2>Shaka Player – Single Stream</h2>
     </div>
 
-    <div data-shaka-player-container style="max-width:40em" data-shaka-player-cast-receiver-id="07AEE832" class="center">
+    <div
+      class="center"
+      style="max-width:40em"
+      data-shaka-player-container
+      data-shaka-player-cast-receiver-id="07AEE832"
+    >
       <video autoplay data-shaka-player id="video"></video>
     </div>
 
     <script>
-      const streams = {
-        dazn: {
-          manifest: 'https://dcs-ak-livedazn.akamaized.net/dash/dazn-linear-206/stream.mpd?p=web',
-          clearKeys: { '6164a0abaa7c53c6875fa1e7fe0bb463': '271510d3e1259571dcc568a232e397eb' },
-          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
-        },
-        skysport: {
-          manifest: 'https://g004-lin-it-cmaf-prd-ak.pcdn07.cssott02.com/v~a-0-0_e~1762350021_s~782a12bc-bb7b-422f-a8b3-fa978b54b324_u~01196498e2294fc9bc543d7248d8266eddbbc335693f0d7d35f3a53b31177cf6_l~60_x~c1e10cd0b5499027cb0361a190cf8f1a5215da21866f96b229c092dd94662d56/nowitlin1/Content/CMAF_CTR_H1/Live/channel(skysportcalcio)/master_2hr-all.mpd',
-          clearKeys: { '111859b69daaf37a2893c3e4d5db7560': '9954a25e97fc84e6d80bbd35d469d381' },
-          userAgent: 'Media3Player/6.7.200 (Linux;Android 9) AndroidXMedia3-Sky-CVSDK/1.5.1 [kara, AFTKA, Amazon, 28]'
+      const stream = {
+        manifest: 'https://timlivetu0.cb.ticdn.it/Content/DASH/Live/channel(eurosport4k)/manifest.mpd',
+
+        clearKeys: {
+     "9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360" ,
+"fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df" ,
+"dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847" ,
+"31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5" ,
+"a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468" ,
         }
       };
 
@@ -46,50 +59,34 @@
         const controls = ui.getControls();
         const player = controls.getPlayer();
 
-        window.player = player;
-        window.ui = ui;
+        player.addEventListener('error', e =>
+          console.error('Player error:', e.detail)
+        );
 
-        player.addEventListener('error', e => console.error('Player error:', e.detail));
-        controls.addEventListener('error', e => console.error('UI error:', e.detail));
-
-        // Carica stream iniziale DAZN
-        await loadStream('dazn');
-
-        // Cambia stream quando si seleziona dal menu
-        document.getElementById('streamSelect').addEventListener('change', async function() {
-          const selected = this.value;
-          await loadStream(selected);
+        player.configure({
+          drm: {
+            clearKeys: stream.clearKeys
+          }
         });
 
-        async function loadStream(key) {
-          const stream = streams[key];
-          player.getNetworkingEngine().clearAllRequestFilters();
-          player.getNetworkingEngine().registerRequestFilter((type, request) => {
-            if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST ||
-                type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
-              request.headers['User-Agent'] = stream.userAgent;
-              if(key==='dazn'){
-                request.headers['dazn-token'] = 'st=1762275308~exp=1762361708~acl=/*~id=8160f8ea0080~data=country=it#asn=3269#path=1s,2d#hashp=7146d3dea70044f8d191494cbaf9b170539059551a801458f7e9193ddef7835d#hashua=8d3a4310782ed11654708481a971289b2b41320c78fe2ca10c0be5d9c3af9b5b~hmac=3468d8df5ad562e483e4e2b433cfff3a76b2a2bf819c2bad34c7672a5e9efd66';
-              }
-            }
-          });
-
-          player.configure({ drm: { clearKeys: stream.clearKeys } });
-
-          try {
-            await player.load(stream.manifest);
-            console.log(`${key} stream loaded successfully!`);
-          } catch (e) {
-            console.error(`Error loading ${key}:`, e);
-          }
+        try {
+          await player.load(stream.manifest);
+          console.log('Stream caricato con successo');
+        } catch (e) {
+          console.error('Errore nel caricamento:', e);
         }
       }
 
       document.addEventListener('shaka-ui-loaded', init);
-      document.addEventListener('shaka-ui-load-failed', () => console.error('Unable to load Shaka UI'));
+      document.addEventListener(
+        'shaka-ui-load-failed',
+        () => console.error('Errore caricamento Shaka UI')
+      );
     </script>
   </body>
 </html>
+
+
 
 
 
