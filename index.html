@@ -1,10 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
   <head>
-    <meta charset="ISO-8859-1">
-    <title>Single Stream Player</title>
+    <meta charset="UTF-8">
+    <title>Single Stream Player - Fixed</title>
 
-    <!-- Shaka Player -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
 
@@ -13,40 +12,45 @@
         background-color: #262626;
         color: white;
         font-family: Arial, sans-serif;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
       }
-      .center {
-        margin: auto;
-        width: 50%;
-        text-align: center;
+      .container {
+        width: 80%;
+        max-width: 800px;
+        margin-top: 50px;
       }
       video {
         width: 100%;
-        height: 100%;
+        aspect-ratio: 16 / 9;
+        background-color: black;
       }
+      h2 { text-align: center; }
     </style>
   </head>
 
   <body>
-    <div class="center">
-      <h2>Shaka Player – Single Stream</h2>
-    </div>
-
-    <div
-      class="center"
-      style="max-width:40em"
-      data-shaka-player-container
-      data-shaka-player-cast-receiver-id="07AEE832"
-    >
-      <video autoplay data-shaka-player id="video"></video>
+    <div class="container">
+      <h2>Shaka Player – Live Stream</h2>
+      
+      <div
+        data-shaka-player-container
+        data-shaka-player-cast-receiver-id="07AEE832"
+      >
+        <video autoplay data-shaka-player id="video"></video>
+      </div>
     </div>
 
     <script>
       const stream = {
         manifest: 'https://ott-video-cf.formula1.com/v2/pa_cGF0aDolMkZoYWp2azJmZDJ2eHIlMkZvdXQlMkZ2MSUyRk1haW4lMkZQcmVzZW50YXRpb24tUjElMkZIRFItVUhELUhMUy1DbGVhcktleXxraWQ6MTA0MnxleHA6MTc3Mjk0NTE1NHx0dGw6MTQ0MHxnZW86SU58c3RyZWFtVHlwZTpIRFJfVUhEX0hMU0NLfHNlc3Npb25JZDoyMTcyODczNDhfMDFLSzM5VkdaM0Y2MVEyMThNNU4zUDI4RlpfUFB8c3RhcnQ6MjAyNi0wMy0wN1QwNDo0MDoxOC0wMDowMHxlbmQ6MjAyNi0wMy0wN1QxNjo0MDoxOC0wMDowMHx0b2tlbjpaamZheXoyfjJ0aGM3M2xFRUlObVNvZlROdVJ6bjhVSHVEWHl6dGhEQ0Y4Xw__/hajvk2fd2vxr/out/v1/Main/Presentation-R1/HDR-UHD-HLS-ClearKey/index.m3u8?end=2026-03-07T16:40:18-00:00&start=2026-03-07T04:40:18-00:00',
 
-    clearKeys: {
-  "05ff63306c16366b946695bb87858c5d": "8cc2da0fed19a863e573808a71119c19"
-}
+        // Formato corretto per Shaka Player: "KID": "KEY"
+        clearKeys: {
+          "05ff63306c16366b946695bb87858c5d": "8cc2da0fed19a863e573808a71119c19"
+        }
       };
 
       async function init() {
@@ -55,33 +59,35 @@
         const controls = ui.getControls();
         const player = controls.getPlayer();
 
-        player.addEventListener('error', e =>
-          console.error('Player error:', e.detail)
-        );
-
+        // Configurazione per migliorare la stabilità del caricamento
         player.configure({
           drm: {
             clearKeys: stream.clearKeys
+          },
+          streaming: {
+            jumpLargeGaps: true, // Salta eventuali buchi nel flusso video
+            dispatchAllEmsgBoxes: true
+          },
+          manifest: {
+            retryParameters: { maxAttempts: 5 }
           }
         });
 
+        player.addEventListener('error', (e) => console.error('Player error:', e.detail));
+
         try {
           await player.load(stream.manifest);
-          console.log('Stream caricato con successo');
+          console.log('Stream caricato con successo!');
         } catch (e) {
-          console.error('Errore nel caricamento:', e);
+          console.error('Errore nel caricamento del manifest:', e);
         }
       }
 
       document.addEventListener('shaka-ui-loaded', init);
-      document.addEventListener(
-        'shaka-ui-load-failed',
-        () => console.error('Errore caricamento Shaka UI')
-      );
+      document.addEventListener('shaka-ui-load-failed', () => console.error('Shaka UI failed to load'));
     </script>
   </body>
 </html>
-
 
 
 
