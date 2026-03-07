@@ -1,53 +1,170 @@
+Hai detto
 <!DOCTYPE html>
-<html lang="it">
+
+<html>
+
 <head>
-    <meta charset="UTF-8">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
-    <style>
-        body { background: #111; color: white; display: flex; justify-content: center; padding-top: 20px; font-family: sans-serif; }
-        .v-container { width: 90%; max-width: 800px; }
-        #debug { background: #222; padding: 10px; font-size: 12px; border-left: 4px solid red; margin-bottom: 10px; color: #0f0; }
-    </style>
+
+<meta charset="ISO-8859-1">
+
+<title>Single Stream Player</title>
+
+
+
+<!-- Shaka Player -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
+
+
+
+<style>
+
+body {
+
+background-color: #262626;
+
+color: white;
+
+font-family: Arial, sans-serif;
+
+}
+
+.center {
+
+margin: auto;
+
+width: 50%;
+
+text-align: center;
+
+}
+
+video {
+
+width: 100%;
+
+height: 100%;
+
+}
+
+</style>
+
 </head>
+
+
+
 <body>
-    <div class="v-container">
-        <div id="debug">Verifica VPN India in corso...</div>
-        <div data-shaka-player-container><video autoplay data-shaka-player id="video" style="width:100%"></video></div>
-    </div>
+
+<div class="center">
+
+<h2>Shaka Player – Single Stream</h2>
+
+</div>
+
+
+
+<div
+
+class="center"
+
+style="max-width:40em"
+
+data-shaka-player-container
+
+data-shaka-player-cast-receiver-id="07AEE832"
+
+>
+
+<video autoplay data-shaka-player id="video"></video>
+
+</div>
+
+
 
 <script>
-    async function init() {
-        const video = document.getElementById('video');
-        const player = video['ui'].getControls().getPlayer();
-        const log = document.getElementById('debug');
 
-        // FILTRO AVANZATO: Rende la richiesta "anonima"
-        player.getNetworkingEngine().registerRequestFilter((type, request) => {
-            request.allowCrossSiteCredentials = true;
-            // Eliminiamo le prove che siamo su GitHub
-            delete request.headers['Origin'];
-            delete request.headers['Referer'];
-            // Aggiungiamo un User-Agent comune
-            request.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-        });
+const stream = {
 
-        player.configure({
-            drm: { clearKeys: { "05ff63306c16366b946695bb87858c5d": "8cc2da0fed19a863e573808a71119c19" } },
-            streaming: { jumpLargeGaps: true }
-        });
+manifest: 'https://ott-video-cf.formula1.com/v2/pa_cGF0aDolMkZoYWp2azJmZDJ2eHIlMkZvdXQlMkZ2MSUyRk1haW4lMkZQcmVzZW50YXRpb24tUjElMkZIRFItVUhELUhMUy1DbGVhcktleXxraWQ6MTA0MnxleHA6MTc3Mjk0NTE1NHx0dGw6MTQ0MHxnZW86SU58c3RyZWFtVHlwZTpIRFJfVUhEX0hMU0NLfHNlc3Npb25JZDoyMTcyODczNDhfMDFLSzM5VkdaM0Y2MVEyMThNNU4zUDI4RlpfUFB8c3RhcnQ6MjAyNi0wMy0wN1QwNDo0MDoxOC0wMDowMHxlbmQ6MjAyNi0wMy0wN1QxNjo0MDoxOC0wMDowMHx0b2tlbjpaamZheXoyfjJ0aGM3M2xFRUlObVNvZlROdVJ6bjhVSHVEWHl6dGhEQ0Y4Xw__/hajvk2fd2vxr/out/v1/Main/Presentation-R1/HDR-UHD-HLS-ClearKey/index.m3u8?end=2026-03-07T16:40:18-00:00&start=2026-03-07T04:40:18-00:00',
 
-        try {
-            await player.load('https://ott-video-cf.formula1.com/v2/pa_cGF0aDolMkZoYWp2azJmZDJ2eHIlMkZvdXQlMkZ2MSUyRk1haW4lMkZQcmVzZW50YXRpb24tUjElMkZIRFItVUhELUhMUy1DbGVhcktleXxraWQ6MTA0MnxleHA6MTc3Mjk0NTE1NHx0dGw6MTQ0MHxnZW86SU58c3RyZWFtVHlwZTpIRFJfVUhEX0hMU0NLfHNlc3Npb25JZDoyMTcyODczNDhfMDFLSzM5VkdaM0Y2MVEyMThNNU4zUDI4RlpfUFB8c3RhcnQ6MjAyNi0wMy0wN1QwNDo0MDoxOC0wMDowMHxlbmQ6MjAyNi0wMy0wN1QxNjo0MDoxOC0wMDowMHx0b2tlbjpaamZheXoyfjJ0aGM3M2xFRUlObVNvZlROdVJ6bjhVSHVEWHl6dGhEQ0Y4Xw__/hajvk2fd2vxr/out/v1/Main/Presentation-R1/HDR-UHD-HLS-ClearKey/index.m3u8', null, 'application/x-mpegurl');
-            log.innerText = "Sincronizzazione completata. Se vedi nero, il link è scaduto.";
-        } catch (e) {
-            log.innerHTML = `<span style="color:red">ERRORE ${e.code}: Il server F1 ha rifiutato la connessione. Link scaduto o VPN non valida.</span>`;
-        }
-    }
-    document.addEventListener('shaka-ui-loaded', init);
+
+
+clearKeys: {
+
+"05ff63306c16366b946695bb87858c5d:8cc2da0fed19a863e573808a71119c19" ,
+
+}
+
+};
+
+
+
+async function init() {
+
+const video = document.getElementById('video');
+
+const ui = video['ui'];
+
+const controls = ui.getControls();
+
+const player = controls.getPlayer();
+
+
+
+player.addEventListener('error', e =>
+
+console.error('Player error:', e.detail)
+
+);
+
+
+
+player.configure({
+
+drm: {
+
+clearKeys: stream.clearKeys
+
+}
+
+});
+
+
+
+try {
+
+await player.load(stream.manifest);
+
+console.log('Stream caricato con successo');
+
+} catch (e) {
+
+console.error('Errore nel caricamento:', e);
+
+}
+
+}
+
+
+
+document.addEventListener('shaka-ui-loaded', init);
+
+document.addEventListener(
+
+'shaka-ui-load-failed',
+
+() => console.error('Errore caricamento Shaka UI')
+
+);
+
 </script>
+
 </body>
+
 </html>
+
 
 
 
