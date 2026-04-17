@@ -1,170 +1,89 @@
 <!DOCTYPE html>
-
-<html>
-
+<html lang="it">
 <head>
+    <meta charset="UTF-8">
+    <title>Eurosport 4K - Shaka Player</title>
 
-<meta charset="ISO-8859-1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
 
-<title>Single Stream Player</title>
-
-
-
-<!-- Shaka Player -->
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
-
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
-
-
-
-<style>
-
-body {
-
-background-color: #262626;
-
-color: white;
-
-font-family: Arial, sans-serif;
-
-}
-
-.center {
-
-margin: auto;
-
-width: 50%;
-
-text-align: center;
-
-}
-
-video {
-
-width: 100%;
-
-height: 100%;
-
-}
-
-</style>
-
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            width: 80%;
+            max-width: 900px;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+    </style>
 </head>
-
-
 
 <body>
 
-<div class="center">
+    <div class="container">
+        <h2 style="text-align: center;">Eurosport 4K Stream</h2>
+        <div data-shaka-player-container data-shaka-player-cast-receiver-id="07AEE832">
+            <video autoplay data-shaka-player id="video"></video>
+        </div>
+    </div>
 
-<h2>Shaka Player – Single Stream</h2>
+    <script>
+        const manifestUri = 'https://timlivetu0.cb.ticdn.it/Content/DASH/Live/channel(eurosport4k)/manifest.mpd';
 
-</div>
+        // Mappatura corretta delle chiavi DRM (KID: KEY)
+        const keys = {
+            "9ceae06c6ad34aada83ba86c0b511452": "406862beb4af1ef8fe04ba15d9936360",
+            "fcd924bd2e45470fa2ae50ef05e357c0": "266db84d3572bc889185274a90ff31df",
+            "dea135e33341468f8a4e8da806d8a6e6": "fb7423db39e6fab75056f8c83f415847",
+            "31911db90ee3410f8b38e45659d01fb1": "ac316ab7dfd2b50faf6d44633e4fedd5",
+            "a16f2a39adbb4974b8910cec8a651a09": "c2d55e0111af955f47214af209a2c468"
+        };
 
+        async function init() {
+            const video = document.getElementById('video');
+            const ui = video['ui'];
+            const controls = ui.getControls();
+            const player = controls.getPlayer();
 
+            // Configurazione DRM e correzione orologio per stream Live
+            player.configure({
+                drm: {
+                    clearKeys: keys
+                },
+                manifest: {
+                    dash: {
+                        ignoreMinBufferTime: true
+                    }
+                }
+            });
 
-<div
+            player.addEventListener('error', (e) => console.error('Errore Player:', e.detail));
 
-class="center"
+            try {
+                await player.load(manifestUri);
+                console.log('Stream caricato correttamente!');
+            } catch (e) {
+                console.error('Errore nel caricamento dello stream:', e);
+            }
+        }
 
-style="max-width:40em"
-
-data-shaka-player-container
-
-data-shaka-player-cast-receiver-id="07AEE832"
-
->
-
-<video autoplay data-shaka-player id="video"></video>
-
-</div>
-
-
-
-<script>
-
-const stream = {
-
-manifest: 'https://timlivetu0.cb.ticdn.it/Content/DASH/Live/channel(eurosport4k)/manifest.mpd',
-
-
-
-clearKeys: {
-
-"9ceae06c6ad34aada83ba86c0b511452:406862beb4af1ef8fe04ba15d9936360" ,
-"fcd924bd2e45470fa2ae50ef05e357c0:266db84d3572bc889185274a90ff31df" ,
-"dea135e33341468f8a4e8da806d8a6e6:fb7423db39e6fab75056f8c83f415847" ,
-"31911db90ee3410f8b38e45659d01fb1:ac316ab7dfd2b50faf6d44633e4fedd5" ,
-"a16f2a39adbb4974b8910cec8a651a09:c2d55e0111af955f47214af209a2c468" ,
-}
-
-};
-
-
-
-async function init() {
-
-const video = document.getElementById('video');
-
-const ui = video['ui'];
-
-const controls = ui.getControls();
-
-const player = controls.getPlayer();
-
-
-
-player.addEventListener('error', e =>
-
-console.error('Player error:', e.detail)
-
-);
-
-
-
-player.configure({
-
-drm: {
-
-clearKeys: stream.clearKeys
-
-}
-
-});
-
-
-
-try {
-
-await player.load(stream.manifest);
-
-console.log('Stream caricato con successo');
-
-} catch (e) {
-
-console.error('Errore nel caricamento:', e);
-
-}
-
-}
-
-
-
-document.addEventListener('shaka-ui-loaded', init);
-
-document.addEventListener(
-
-'shaka-ui-load-failed',
-
-() => console.error('Errore caricamento Shaka UI')
-
-);
-
-</script>
-
+        document.addEventListener('shaka-ui-loaded', init);
+        document.addEventListener('shaka-ui-load-failed', () => console.error('Caricamento UI fallito'));
+    </script>
 </body>
-
 </html>
 
 
