@@ -1,99 +1,94 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
-<meta charset="ISO-8859-1">
-<title>Single Stream Player</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
-
-<style>
-body {
-background-color: #262626;
-color: white;
-font-family: Arial, sans-serif;
-}
-.center {
-margin: auto;
-width: 50%;
-text-align: center;
-}
-video {
-width: 100%;
-height: 100%;
-}
-</style>
+    <meta charset="UTF-8">
+    <title>UHD TV Multi-Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
+    <style>
+        body { background-color: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .container { width: 100%; max-width: 1200px; }
+        select { 
+            width: 100%; padding: 15px; margin-bottom: 20px; background: #333; color: white; 
+            border: 2px solid #ff9000; border-radius: 8px; font-size: 18px; cursor: pointer;
+        }
+        #video-container { width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        h1 { color: #ff9000; font-size: 24px; }
+    </style>
 </head>
-
 <body>
-<div class="center">
-<h2>Shaka Player – Single Stream</h2>
-</div>
 
-<div
-class="center"
-style="max-width:40em"
-data-shaka-player-container
-data-shaka-player-cast-receiver-id="07AEE832"
->
-<video autoplay data-shaka-player id="video"></video>
+<div class="container">
+    <h1>Multi-Stream UHD Player</h1>
+    
+    <select id="streamSelector">
+        <option value="f1">SKY SPORTS F1 UHD</option>
+        <option value="sports1">SKY SPORTS 1 UHD</option>
+        <option value="sports2">SKY SPORTS 2 UHD</option>
+        <option value="mainevent">SKY SPORTS MAIN EVENT UHD</option>
+        <option value="tnt">TNT SPORTS ULTIMATE UHD</option>
+    </select>
+
+    <div id="video-container" data-shaka-player-container>
+        <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
+    </div>
 </div>
 
 <script>
-const stream = {
-manifest: 'https://timlivetu0.cb.ticdn.it/Content/DASH/Live/channel(eurosport4k)/manifest.mpd',
-
-clearKeys: {
-"9ceae06c6ad34aada83ba86c0b511452": "406862beb4af1ef8fe04ba15d9936360",
-"fcd924bd2e45470fa2ae50ef05e357c0": "266db84d3572bc889185274a90ff31df",
-"dea135e33341468f8a4e8da806d8a6e6": "fb7423db39e6fab75056f8c83f415847",
-"31911db90ee3410f8b38e45659d01fb1": "ac316ab7dfd2b50faf6d44633e4fedd5",
-"a16f2a39adbb4974b8910cec8a651a09": "c2d55e0111af955f47214af209a2c468"
-}
+const streams = {
+    f1: {
+        manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777128144_s~76745fba-2c35-4665-a9d1-06308e0c7c63_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~60_x~900fd3e3e54103da44c86cba2ec64e86c8ca41d63e35bc3c75671d1af9fe0755/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skysportsf1uhd)/master_2hr-all.mpd',
+        keys: { "111cd3cd3a27a8c0aaa40d9d7815bb33": "1d13d440ab29ab027de9843ecf62facf", "111c5b96024c2a58fbc980905a0b3c73": "07ec005ab99cb0fbbce1c4d913fd941e" }
+    },
+    sports1: {
+        manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777128144_s~99905afc-2a41-4034-a5fd-c3295238def4_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~59_x~334cdac6b7bbd9426bf71071f0fa3c875459b04b4fbd1e0c75492078003b8d18/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skyuhdsports1)/master_2hr-all.mpd',
+        keys: { "111cfb5bb437ce65bd71a0421bd2a4cf": "7c09158574cf900b64bbeb1fa6be8b64", "111c3801c329b61c7b03872eee20073c": "8506cfd7504dfaab5cc9dcd83f3c223c" }
+    },
+    sports2: {
+        manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777128144_s~c625fc9d-5d92-4237-874e-ee483ef3c3a2_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~59_x~abbdf7aebc892e493388c5308ec78d4bf9de91a6b463a9a666db541a7b38a691/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skyuhdsports2)/master_2hr-all.mpd',
+        keys: { "111c16b39b650523d7a51c07eedeef01": "87b8223de40e047a10f094d3eb02dd55", "111c5ab918fc0f7d4ed948f1e1c08846": "d61325e9bd5f38bce8503f3f11602f44" }
+    },
+    mainevent: {
+        manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777128144_s~7f47a0e0-36d0-4169-8b46-909e8e1e462c_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~67_x~b6bfde351e2f844358f5a829884e5e9ae7f5cacfa71fd2e3a9423a3b7359c1af/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skysportsmaineventuhd)/master_2hr-all.mpd',
+        keys: { "111c25e7e37846b06c9b87f62658546e": "d30ab65c372dac38af450625169da171", "111ce0170cba6d5b3692f5b0d433e582": "74869e833e9d984df1a0d4954559187a" }
+    },
+    tnt: {
+        manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777128144_s~c521804a-3b5f-4135-8bec-3bfc24840e74_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~65_x~297ba6f516b2d1dd1750ce79a7adcd16bb3f3940e773662a8d8b8d7a36ae7a84/nowgblin1/Content/CMAF_CTR_D1/Live/channel(tntsportultimateuhd)/master_2hr-all.mpd',
+        keys: { "111c36e35a0406b150ba557d489606aa": "4d1144b896229503f3f84e6b8764220d", "111c8504f18d1648ff8a82d78178e55c": "539435e7a6d369d51de51d04cbc842f2" }
+    }
 };
 
+let player;
+
+async function loadStream(streamKey) {
+    const stream = streams[streamKey];
+    player.configure({
+        drm: { clearKeys: stream.keys }
+    });
+    try {
+        await player.load(stream.manifest);
+        console.log("Caricato:", streamKey);
+    } catch (e) {
+        console.error("Errore caricamento:", e);
+    }
+}
+
 async function init() {
-const video = document.getElementById('video');
-const ui = video['ui'];
-const controls = ui.getControls();
-const player = controls.getPlayer();
+    const video = document.getElementById('video');
+    const ui = video['ui'];
+    const controls = ui.getControls();
+    player = controls.getPlayer();
 
-player.addEventListener('error', e =>
-console.error('Player error:', e.detail)
-);
+    // Carica il primo canale di default
+    loadStream('f1');
 
-player.configure({
-drm: {
-clearKeys: stream.clearKeys
-}
-});
-
-try {
-await player.load(stream.manifest);
-console.log('Stream caricato con successo');
-} catch (e) {
-console.error('Errore nel caricamento:', e);
-}
+    // Listener per il cambio canale
+    document.getElementById('streamSelector').addEventListener('change', (e) => {
+        loadStream(e.target.value);
+    });
 }
 
 document.addEventListener('shaka-ui-loaded', init);
-document.addEventListener(
-'shaka-ui-load-failed',
-() => console.error('Errore caricamento Shaka UI')
-);
 </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
