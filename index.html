@@ -64,17 +64,43 @@ const streams = {
 };
 
 let player;
+let currentActiveKey = 'f1'; // Traccia il canale attualmente attivo
+let stallTimeout; 
 
 async function loadStream(streamKey) {
+    currentActiveKey = streamKey;
     const stream = streams[streamKey];
+    
+    // Configurazione DRM ottimizzata + Tweak del Buffer per evitare blocchi casuali
     player.configure({
-        drm: { clearKeys: stream.keys }
+        drm: { clearKeys: stream.keys },
+        streaming: {
+            rebufferingGoal: 2, // Abbassa la richiesta minima di buffer per ripartire subito
+            bufferingGoal: 10,
+            failureCallback: function(error) {
+                console.warn("Shaka ha rilevato un fallimento streaming:", error);
+                // Se Shaka fallisce internamente, forziamo il recupero
+                triggerAutoRecovery();
+            }
+        }
     });
+
     try {
         await player.load(stream.manifest);
         console.log("Caricato:", streamKey);
     } catch (e) {
         console.error("Errore caricamento:", e);
+        // Se fallisce il caricamento iniziale (es. errore di rete temporaneo della CDN), riprova dopo 2 secondi
+        setTimeout(() => { if(currentActiveKey === streamKey) loadStream(streamKey); }, 2000);
+    }
+}
+
+// Funzione core per sbloccare lo stream rimasto "appeso"
+function triggerAutoRecovery() {
+    console.log("⚠️ Stallo o blocco rilevato su " + currentActiveKey + ". Avvio ripristino automatico...");
+    if (player) {
+        // Svuota i vecchi chunk corrotti o bloccati in memoria e ricarica il manifest live aggiornato
+        loadStream(currentActiveKey);
     }
 }
 
@@ -84,11 +110,39 @@ async function init() {
     const controls = ui.getControls();
     player = controls.getPlayer();
 
+    // --- LOGICA ANTI-ROTELLA (STALL DETECTION) ---
+    
+    // Quando lo stream entra in buffering (compare la rotella)
+    video.addEventListener('waiting', () => {
+        clearTimeout(stallTimeout);
+        // Se la rotella gira fissa per più di 3500ms (3.5 secondi), diamo per scontato che sia il blocco di TIM
+        stallTimeout = setTimeout(() => {
+            triggerAutoRecovery();
+        }, 3500); 
+    });
+
+    // Se il video riprende a riprodurre correttamente, annulliamo il timer di emergenza
+    video.addEventListener('playing', () => {
+        clearTimeout(stallTimeout);
+    });
+
+    video.addEventListener('timeupdate', () => {
+        clearTimeout(stallTimeout);
+    });
+
+    // Gestione errori generica a livello di Player
+    player.addEventListener('error', (event) => {
+        console.error('Shaka Player Error:', event.detail);
+        // Evita il blocco totale del codice e prova a ricaricare
+        triggerAutoRecovery();
+    });
+
     // Carica il primo canale di default
     loadStream('f1');
 
     // Listener per il cambio canale
     document.getElementById('streamSelector').addEventListener('change', (e) => {
+        clearTimeout(stallTimeout); // Pulisce i timeout attivi durante il cambio manuale
         loadStream(e.target.value);
     });
 }
