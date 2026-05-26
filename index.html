@@ -62,23 +62,24 @@ const streams = {
         keys: { "9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360","fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df","dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847","31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5","a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468" },
     }
 };
+
 let player;
-let currentActiveKey = 'f1'; // Traccia il canale attualmente attivo
+let currentActiveKey = 'f1'; 
 let stallTimeout; 
+let isRecovering = false; // Flag per bloccare i loop di richieste concorrenti
 
 async function loadStream(streamKey) {
     currentActiveKey = streamKey;
     const stream = streams[streamKey];
+    const video = document.getElementById('video');
     
-    // Configurazione DRM ottimizzata + Tweak del Buffer per evitare blocchi casuali
     player.configure({
         drm: { clearKeys: stream.keys },
         streaming: {
-            rebufferingGoal: 2, // Abbassa la richiesta minima di buffer per ripartire subito
-            bufferingGoal: 10,
+            rebufferingGoal: 1.5, // Molto aggressivo per forzare l'avvio immediato
+            bufferingGoal: 8,
             failureCallback: function(error) {
-                console.warn("Shaka ha rilevato un fallimento streaming:", error);
-                // Se Shaka fallisce internamente, forziamo il recupero
+                console.warn("Shaka failure:", error);
                 triggerAutoRecovery();
             }
         }
@@ -86,19 +87,36 @@ async function loadStream(streamKey) {
 
     try {
         await player.load(stream.manifest);
-        console.log("Caricato:", streamKey);
+        console.log("Caricato con successo:", streamKey);
+        
+        // --- LOGICA DI AUTOPLAY RIGIDA ---
+        // Eseguiamo il play e catturiamo l'eventuale blocco di sicurezza del browser
+        let playPromise = video.play();
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                isRecovering = false;
+            }).catch(async (error) => {
+                console.warn("Autoplay bloccato con audio. Provo a forzare il play mutato temporaneamente...");
+                // Se bloccato, mettiamo muto un millesimo di secondo per ingannare il browser, avviamo e ridiamo voce
+                video.muted = true;
+                await video.play();
+                video.muted = false; 
+                isRecovering = false;
+            });
+        }
     } catch (e) {
         console.error("Errore caricamento:", e);
-        // Se fallisce il caricamento iniziale (es. errore di rete temporaneo della CDN), riprova dopo 2 secondi
+        isRecovering = false;
         setTimeout(() => { if(currentActiveKey === streamKey) loadStream(streamKey); }, 2000);
     }
 }
 
-// Funzione core per sbloccare lo stream rimasto "appeso"
 function triggerAutoRecovery() {
-    console.log("⚠️ Stallo o blocco rilevato su " + currentActiveKey + ". Avvio ripristino automatico...");
+    if (isRecovering) return; // Evita di sovrapporre più ricariche contemporanee
+    isRecovering = true;
+    
+    console.log("⚠️ Stallo o blocco rilevato su " + currentActiveKey + ". Avvio ripristino automatico e forzatura PLAY...");
     if (player) {
-        // Svuota i vecchi chunk corrotti o bloccati in memoria e ricarica il manifest live aggiornato
         loadStream(currentActiveKey);
     }
 }
@@ -109,30 +127,27 @@ async function init() {
     const controls = ui.getControls();
     player = controls.getPlayer();
 
-    // --- LOGICA ANTI-ROTELLA (STALL DETECTION) ---
+    // --- DETECTION INTELLIGENTE DELLO STALLO ---
     
-    // Quando lo stream entra in buffering (compare la rotella)
     video.addEventListener('waiting', () => {
         clearTimeout(stallTimeout);
-        // Se la rotella gira fissa per più di 3500ms (3.5 secondi), diamo per scontato che sia il blocco di TIM
+        // Abbassato a 3000ms (3 secondi): se la CDN freeza, agisce istantaneamente
         stallTimeout = setTimeout(() => {
             triggerAutoRecovery();
-        }, 3500); 
+        }, 3000); 
     });
 
-    // Se il video riprende a riprodurre correttamente, annulliamo il timer di emergenza
     video.addEventListener('playing', () => {
         clearTimeout(stallTimeout);
+        isRecovering = false;
     });
 
     video.addEventListener('timeupdate', () => {
         clearTimeout(stallTimeout);
     });
 
-    // Gestione errori generica a livello di Player
     player.addEventListener('error', (event) => {
         console.error('Shaka Player Error:', event.detail);
-        // Evita il blocco totale del codice e prova a ricaricare
         triggerAutoRecovery();
     });
 
@@ -141,7 +156,8 @@ async function init() {
 
     // Listener per il cambio canale
     document.getElementById('streamSelector').addEventListener('change', (e) => {
-        clearTimeout(stallTimeout); // Pulisce i timeout attivi durante il cambio manuale
+        clearTimeout(stallTimeout); 
+        isRecovering = false;
         loadStream(e.target.value);
     });
 }
