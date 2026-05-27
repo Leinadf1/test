@@ -2,36 +2,37 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>UHD TV Multi-Player</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UHD TV - Custom Player Node</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.compiled.js"></script>
     <style>
-        body { background-color: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
-        .container { width: 100%; max-width: 1200px; }
+        body { background-color: #0f0f0f; color: #ffffff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .container { width: 100%; max-width: 1000px; }
+        h1 { color: #ff9000; text-align: center; font-size: 26px; text-transform: uppercase; letter-spacing: 1px; }
         select { 
-            width: 100%; padding: 15px; margin-bottom: 20px; background: #333; color: white; 
-            border: 2px solid #ff9000; border-radius: 8px; font-size: 18px; cursor: pointer;
+            width: 100%; padding: 14px; margin-bottom: 25px; background: #222; color: #fff; 
+            border: 2px solid #ff9000; border-radius: 6px; font-size: 16px; cursor: pointer; outline: none;
         }
-        #video-container { width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
-        h1 { color: #ff9000; font-size: 24px; }
+        .video-box { width: 100%; aspect-ratio: 16/9; background-color: #000; box-shadow: 0 15px 35px rgba(0,0,0,0.9); border-radius: 8px; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: contain; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Multi-Stream UHD Player</h1>
+    <h1>Multi-Stream Custom Dashboard</h1>
     
-    <select id="streamSelector">
+    <select id="channelSelector">
         <option value="f1">SKY SPORTS F1 UHD</option>
         <option value="sports1">SKY SPORTS 1 UHD</option>
         <option value="sports2">SKY SPORTS 2 UHD</option>
         <option value="mainevent">SKY SPORTS MAIN EVENT UHD</option>
         <option value="tnt">TNT SPORTS ULTIMATE UHD</option>
-        <option value="eurosport4k">EUROSPORT 4K</option>
+        <option value="eurosport4k">EUROSPORT 4K (TIMVISION)</option>
     </select>
 
-    <div id="video-container" data-shaka-player-container>
-        <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
+    <div class="video-box">
+        <video id="videoPlayer" controls autoplay muted></video>
     </div>
 </div>
 
@@ -59,41 +60,78 @@ const streams = {
     },
     eurosport4k: {
         manifest: 'https://timlivetu0.cb.ticdn.it/Content/DASH/Live/channel(eurosport4k)/manifest.mpd',
-        keys: {"9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360","fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df","dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847","31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5","a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468"}
-    },
+        keys: { "9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360","fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df","dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847","31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5","a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468" }
+    }
 };
 
-let player;
+let shakaPlayer = null;
+let videoEl = null;
 
-async function loadStream(streamKey) {
-    const stream = streams[streamKey];
-    player.configure({
-        drm: { clearKeys: stream.keys }
+async function switchChannel(channelKey) {
+    const targetData = streams[channelKey];
+    if (!targetData) return;
+
+    console.log("Inizializzazione canale:", channelKey);
+
+    // Applichiamo la configurazione DRM forzata, proprio come fa il pannello di nodrm.online
+    shakaPlayer.configure({
+        drm: {
+            clearKeys: targetData.keys,
+            servers: {}, // Svuota i server di licenza standard per forzare la chiave locale
+            advanced: {
+                'org.w3.org.clearkey': {
+                    'distinctiveIdentifierRequired': false,
+                    'persistentStateRequired': false,
+                    'videoRobustness': '',
+                    'audioRobustness': ''
+                }
+            }
+        },
+        manifest: {
+            dash: {
+                // Impostazioni per i manifest molto corti e dinamici di TIM
+                clockSyncUri: '' 
+            }
+        }
     });
+
     try {
-        await player.load(stream.manifest);
-        console.log("Caricato:", streamKey);
-    } catch (e) {
-        console.error("Errore caricamento:", e);
+        // Carica lo stream nel player
+        await shakaPlayer.load(targetData.manifest);
+        console.log("Flusso agganciato con successo!");
+    } catch (error) {
+        console.error("Errore Shaka nell'aggancio del flusso:", error.code, error);
     }
 }
 
-async function init() {
-    const video = document.getElementById('video');
-    const ui = video['ui'];
-    const controls = ui.getControls();
-    player = controls.getPlayer();
+async function initPlayer() {
+    // Inizializza i polyfill di Shaka Player (fondamentali su iOS/Safari e alcune Smart TV)
+    shaka.polyfill.installAll();
 
-    // Carica il primo canale di default
-    loadStream('f1');
+    if (!shaka.Player.isBrowserSupported()) {
+        alert('Attenzione: Questo browser non supporta le estensioni di decodifica MediaSource!');
+        return;
+    }
 
-    // Listener per il cambio canale
-    document.getElementById('streamSelector').addEventListener('change', (e) => {
-        loadStream(e.target.value);
+    videoEl = document.getElementById('videoPlayer');
+    shakaPlayer = new shaka.Player(videoEl);
+
+    // Gestione degli errori globali del lettore
+    shakaPlayer.addEventListener('error', (event) => {
+        console.error('Shaka Player Runtime Error:', event.detail);
+    });
+
+    // Avvio del primo canale della lista (F1 UHD)
+    await switchChannel('f1');
+
+    // Gestore dell'evento di cambio canale dal menu a tendina
+    document.getElementById('channelSelector').addEventListener('change', async (e) => {
+        await switchChannel(e.target.value);
     });
 }
 
-document.addEventListener('shaka-ui-loaded', init);
+// Aspetta che il DOM sia pronto per caricare Shaka
+document.addEventListener('DOMContentLoaded', initPlayer);
 </script>
 </body>
 </html>
