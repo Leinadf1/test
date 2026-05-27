@@ -2,45 +2,36 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UHD TV - Custom Player con Selettore Qualità</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.compiled.js"></script>
+    <title>UHD TV Multi-Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
     <style>
-        body { background-color: #0f0f0f; color: #ffffff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
-        .container { width: 100%; max-width: 1000px; }
-        h1 { color: #ff9000; text-align: center; font-size: 26px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
-        .controls-row { display: flex; gap: 15px; margin-bottom: 25px; }
+        body { background-color: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .container { width: 100%; max-width: 1200px; }
         select { 
-            flex: 1; padding: 14px; background: #222; color: #fff; 
-            border: 2px solid #ff9000; border-radius: 6px; font-size: 16px; cursor: pointer; outline: none;
+            width: 100%; padding: 15px; margin-bottom: 20px; background: #333; color: white; 
+            border: 2px solid #ff9000; border-radius: 8px; font-size: 18px; cursor: pointer;
         }
-        select:disabled { border-color: #555; color: #777; cursor: not-allowed; }
-        .video-box { width: 100%; aspect-ratio: 16/9; background-color: #000; box-shadow: 0 15px 35px rgba(0,0,0,0.9); border-radius: 8px; overflow: hidden; }
-        video { width: 100%; height: 100%; object-fit: contain; }
+        #video-container { width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        h1 { color: #ff9000; font-size: 24px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Multi-Stream Custom Dashboard</h1>
+    <h1>Multi-Stream UHD Player</h1>
     
-    <div class="controls-row">
-        <select id="channelSelector">
-            <option value="eurosport4k">EUROSPORT 4K (TIMVISION)</option>
-            <option value="f1">SKY SPORTS F1 UHD</option>
-            <option value="sports1">SKY SPORTS 1 UHD</option>
-            <option value="sports2">SKY SPORTS 2 UHD</option>
-            <option value="mainevent">SKY SPORTS MAIN EVENT UHD</option>
-            <option value="tnt">TNT SPORTS ULTIMATE UHD</option>
-        </select>
+    <select id="streamSelector">
+        <option value="f1">SKY SPORTS F1 UHD</option>
+        <option value="sports1">SKY SPORTS 1 UHD</option>
+        <option value="sports2">SKY SPORTS 2 UHD</option>
+        <option value="mainevent">SKY SPORTS MAIN EVENT UHD</option>
+        <option value="tnt">TNT SPORTS ULTIMATE UHD</option>
+        <option value="eurosport4k">EUROSPORT 4K</option>
+    </select>
 
-        <select id="qualitySelector" disabled>
-            <option value="auto">Qualità: Automatica</option>
-        </select>
-    </div>
-
-    <div class="video-box">
-        <video id="videoPlayer" controls autoplay></video>
+    <div id="video-container" data-shaka-player-container>
+        <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
     </div>
 </div>
 
@@ -48,7 +39,7 @@
 const streams = {
     eurosport4k: {
         manifest: 'https://timlivetu0.cb.ticdn.it/Content/DASH/Live/channel(eurosport4k)/manifest.mpd',
-        keys: { "9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360","fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df","dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847","31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5","a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468" }
+        keys: {"9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360","fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df","dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847","31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5","a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468"}
     },
     f1: {
         manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777711547_s~7d601a3c-76ec-4aec-940c-8c9fb7fadffd_u~391d2014ab0c633697fb1b3a46f47dfaf28470e414b6aaafb672438c19a94fc021fcb3dc21d6ad645d044df1ab39f0a3_l~60_x~12eeddf9c3adaeb3016040c0e8078deb1ad075a319231d69eab2274b0c992a3e/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skysportsf1uhd)/master_2hr-all.mpd',
@@ -69,113 +60,40 @@ const streams = {
     tnt: {
         manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777218148_s~3c04d9eb-0182-41c8-839b-4642c3f270b3_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~65_x~ea6fc938e2b8183c42f657473c8d7942d45f3c931e32dc3d255d2f64c075a0af/nowgblin1/Content/CMAF_CTR_D1/Live/channel(tntsportultimateuhd)/master_2hr-all.mpd',
         keys: { "111c36e35a0406b150ba557d489606aa": "4d1144b896229503f3f84e6b8764220d", "111c8504f18d1648ff8a82d78178e55c": "539435e7a6d369d51de51d04cbc842f2" }
-    }
+    },
 };
 
-let shakaPlayer = null;
-let videoEl = null;
+let player;
 
-async function switchChannel(channelKey) {
-    const targetData = streams[channelKey];
-    if (!targetData) return;
-
-    const qualitySelector = document.getElementById('qualitySelector');
-    qualitySelector.innerHTML = '<option value="auto">Qualità: Automatica</option>';
-    qualitySelector.disabled = true;
-
-    shakaPlayer.configure({
-        drm: {
-            clearKeys: targetData.keys,
-            servers: {},
-            advanced: {
-                'org.w3.org.clearkey': {
-                    'distinctiveIdentifierRequired': false,
-                    'persistentStateRequired': false,
-                    'videoRobustness': '',
-                    'audioRobustness': ''
-                }
-            }
-        },
-        manifest: { dash: { clockSyncUri: '' } }
+async function loadStream(streamKey) {
+    const stream = streams[streamKey];
+    player.configure({
+        drm: { clearKeys: stream.keys }
     });
-
     try {
-        await shakaPlayer.load(targetData.manifest);
-        console.log("Flusso agganciato con successo!");
-        populateQualityMenu();
-    } catch (error) {
-        console.error("Errore Shaka:", error.code, error);
+        await player.load(stream.manifest);
+        console.log("Caricato:", streamKey);
+    } catch (e) {
+        console.error("Errore caricamento:", e);
     }
 }
 
-function populateQualityMenu() {
-    const qualitySelector = document.getElementById('qualitySelector');
-    const tracks = shakaPlayer.getVariantTracks();
-    tracks.sort((a, b) => b.height - a.height);
+async function init() {
+    const video = document.getElementById('video');
+    const ui = video['ui'];
+    const controls = ui.getControls();
+    player = controls.getPlayer();
 
-    const seenHeights = new Set();
+    // Carica il primo canale di default
+    loadStream('f1');
 
-    tracks.forEach((track) => {
-        if (track.height && !seenHeights.has(track.height)) {
-            seenHeights.add(track.height);
-            const option = document.createElement('option');
-            option.value = track.id;
-            
-            let label = `${track.height}p (${track.width}x${track.height})`;
-            if (track.height >= 2160) label += ' [UHD/4K]';
-            else if (track.height >= 1080) label += ' [Full HD]';
-            
-            option.textContent = label;
-            qualitySelector.appendChild(option);
-        }
-    });
-
-    if (seenHeights.size > 0) {
-        qualitySelector.disabled = false;
-    }
-}
-
-async function initPlayer() {
-    shaka.polyfill.installAll();
-
-    if (!shaka.Player.isBrowserSupported()) {
-        alert('Browser non supportato!');
-        return;
-    }
-
-    videoEl = document.getElementById('videoPlayer');
-    shakaPlayer = new shaka.Player(videoEl);
-
-    shakaPlayer.addEventListener('error', (event) => {
-        console.error('Shaka Error:', event.detail);
-    });
-
-    // Modificato l'avvio iniziale per caricare 'eurosport4k' come predefinito
-    await switchChannel('eurosport4k');
-
-    document.getElementById('channelSelector').addEventListener('change', async (e) => {
-        await switchChannel(e.target.value);
-    });
-
-    document.getElementById('qualitySelector').addEventListener('change', (e) => {
-        const value = e.target.value;
-        if (value === 'auto') {
-            shakaPlayer.configure({ abr: { enabled: true } });
-        } else {
-            shakaPlayer.configure({ abr: { enabled: false } });
-            
-            const trackId = parseInt(value, 10);
-            const tracks = shakaPlayer.getVariantTracks();
-            const selectedTrack = tracks.find(t => t.id === trackId);
-            
-            if (selectedTrack) {
-                shakaPlayer.selectVariantTrack(selectedTrack, true);
-            }
-        }
+    // Listener per il cambio canale
+    document.getElementById('streamSelector').addEventListener('change', (e) => {
+        loadStream(e.target.value);
     });
 }
 
-document.addEventListener('DOMContentLoaded', initPlayer);
+document.addEventListener('shaka-ui-loaded', init);
 </script>
 </body>
 </html>
