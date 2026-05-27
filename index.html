@@ -83,21 +83,34 @@ async function loadStream(streamKey) {
                 ignoreMinBufferTime: true,
                 autoCorrectTiming: true
             },
-            updatePeriod: 3
+            updatePeriod: 5 // Aumentato a 5s per ridurre lo stress di rete sul controllo manifest
         },
         streaming: {
-            safeInSeconds: 8,
-            maxNumFailures: 10,
+            // PARAMETRI OTTIMIZZATI PER IL BUFFERING CLASSICO:
+            bufferingGoal: 25,       // Accumula fino a 25 secondi di video (molto più cuscinetto)
+            rebufferingGoal: 6,      // Prima di ripartire dopo un blocco, accumula almeno 6 secondi
+            safeInSeconds: 12,       // Si allontana di 12 secondi dalla diretta per non andare MAI a vuoto sui segmenti
+            stallThreshold: 4,       // Consente fino a 4 secondi di stallo assoluto prima di tentare mosse drastiche
+            
+            maxNumFailures: 15,      // Riprova a scaricare i segmenti falliti fino a 15 volte prima di cedere
             failureCallback: function(error) {
-                console.warn("Segmento fallito, tento il recupero...", error);
+                console.warn("Segmento fallito, avvio buffering di recupero...", error);
                 player.retry();
+            }
+        },
+        // Forza l'ABR a scalare la qualità verso il basso se la rete rallenta, invece di bloccarsi
+        abr: {
+            enabled: true,
+            switchInterval: 5,
+            restrictions: {
+                minHeight: 360
             }
         }
     }); 
 
     try { 
         await player.load(stream.manifest); 
-        console.log("Caricato:", streamKey); 
+        console.log("Caricato con priorità Buffer:", streamKey); 
     } catch (e) { 
         console.error("Errore caricamento:", e); 
     } 
@@ -109,12 +122,14 @@ async function init() {
     const controls = ui.getControls(); 
     player = controls.getPlayer(); 
  
-    // Intercettore degli errori anti-blocco con ripristino forzato dell'audio
+    // Intercettore degli errori ricalibrato per dare spazio al buffering
     player.addEventListener('error', async (event) => {
         const error = event.detail;
         
-        if (error.category === shaka.util.Error.Category.MEDIA || error.code === 3016 || error.code === 244002) {
-            console.warn("Rilevato crash di decodifica (Errore 3016). Avvio reset forzato del canale...");
+        // MODIFICA CRUCIALE: Adesso si riavvia SOLO ed ESCLUSIVAMENTE se riceve l'errore hardware bloccante 3016
+        // Gli errori generici di rete o di calo frame vengono lasciati gestire al normale buffering del player
+        if (error.code === 3016 || error.code === 244002) {
+            console.warn("Rilevato Errore 3016 (Decoder Hardware bloccato). Avvio reset forzato...");
             
             const currentChannel = document.getElementById('streamSelector').value;
             
@@ -122,27 +137,23 @@ async function init() {
                 await player.unload();
                 await loadStream(currentChannel);
                 
-                // Forza il riavvio del video e sblocca l'audio
                 setTimeout(() => {
-                    // Assicuriamoci che lo stato nativo non sia impostato su muto prima del play
                     video.muted = false;
                     video.volume = 1.0; 
 
                     video.play().then(() => {
-                        console.log("Flusso riavviato e riproduzione ripresa CON AUDIO attivo!");
+                        console.log("Flusso riavviato con successo dopo errore critico!");
                     }).catch((playError) => {
-                        console.warn("Autoplay bloccato dal browser. Tento aggiramento immediato...", playError);
-                        // Se il browser fa resistenza e blocca il play, lo forziamo riattivando l'audio subito dopo
+                        console.warn("Autoplay bloccato. Eseguo fallback muto temporaneo...", playError);
                         video.muted = true; 
                         video.play().then(() => {
-                            // Un millisecondo dopo il play forziamo lo smascheramento dell'audio
                             setTimeout(() => {
                                 video.muted = false;
                                 video.volume = 1.0;
                             }, 100);
                         });
                     });
-                }, 600); // Portato a 600ms per dare più stabilità al decoder hardware della TV
+                }, 600); 
                 
             } catch (retryError) {
                 console.error("Tentativo di riavvio automatico fallito:", retryError);
