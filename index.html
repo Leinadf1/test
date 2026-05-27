@@ -50,7 +50,7 @@ const streams = {
         keys: { "111cfb5bb437ce65bd71a0421bd2a4cf": "7c09158574cf900b64bbeb1fa6be8b64", "111c3801c329b61c7b03872eee20073c": "8506cfd7504dfaab5cc9dcd83f3c223c" } 
     }, 
     sports2: { 
-        manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777218149_s~df50d4a7-5fff-42a3-a2a9-02b5d680bf19_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~59_x~aa349eba73f552f9b3e4769850376ba6f2cfdafa9a1c9f5f5e6c80352fd41048/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skyuhdsports2)/master_2hr-all.mpd', 
+        manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777218149_s~df50d4a7-fff5-42a3-a2a9-02b5d680bf19_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~59_x~aa349eba73f552f9b3e4769850376ba6f2cfdafa9a1c9f5f5e6c80352fd41048/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skyuhdsports2)/master_2hr-all.mpd', 
         keys: { "111c16b39b650523d7a51c07eedeef01": "87b8223de40e047a10f094d3eb02dd55", "111c5ab918fc0f7d4ed948f1e1c08846": "d61325e9bd5f38bce8503f3f11602f44" } 
     }, 
     mainevent: { 
@@ -109,22 +109,31 @@ async function init() {
     const controls = ui.getControls(); 
     player = controls.getPlayer(); 
  
-    // Intercettore degli errori anti-blocco (Gestione Errore 3016 / MEDIA)
+    // Intercettore degli errori anti-blocco ottimizzato con autoplay forzato
     player.addEventListener('error', async (event) => {
         const error = event.detail;
         
-        // Se l'errore è di tipo MEDIA (decodifica) o codice critico 3016
         if (error.category === shaka.util.Error.Category.MEDIA || error.code === 3016 || error.code === 244002) {
             console.warn("Rilevato crash di decodifica (Errore 3016). Avvio reset forzato del canale...");
             
-            // Trova il canale attualmente selezionato
             const currentChannel = document.getElementById('streamSelector').value;
             
             try {
-                // Svuota i vecchi frammenti di memoria corrotti e ricarica il flusso da zero
                 await player.unload();
                 await loadStream(currentChannel);
-                console.log("Canale riavviato e sincronizzato automaticamente!");
+                
+                // Forza il play sul tag video nativo per bypassare il blocco dell'interfaccia
+                setTimeout(() => {
+                    video.play().then(() => {
+                        console.log("Flusso riavviato e riproduzione ripresa in automatico!");
+                    }).catch((playError) => {
+                        console.warn("Il browser ha bloccato il play automatico con audio. Tento riproduzione silenziosa...", playError);
+                        // Se fallisce per via delle policy sull'audio, prova a mutare un secondo per sbloccarlo
+                        video.muted = true;
+                        video.play();
+                    });
+                }, 500); // 500ms di delay per dare tempo al browser di agganciare l'hardware
+                
             } catch (retryError) {
                 console.error("Tentativo di riavvio automatico fallito:", retryError);
             }
