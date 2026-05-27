@@ -109,7 +109,7 @@ async function init() {
     const controls = ui.getControls(); 
     player = controls.getPlayer(); 
  
-    // Intercettore degli errori anti-blocco ottimizzato con autoplay forzato
+    // Intercettore degli errori anti-blocco con ripristino forzato dell'audio
     player.addEventListener('error', async (event) => {
         const error = event.detail;
         
@@ -122,17 +122,27 @@ async function init() {
                 await player.unload();
                 await loadStream(currentChannel);
                 
-                // Forza il play sul tag video nativo per bypassare il blocco dell'interfaccia
+                // Forza il riavvio del video e sblocca l'audio
                 setTimeout(() => {
+                    // Assicuriamoci che lo stato nativo non sia impostato su muto prima del play
+                    video.muted = false;
+                    video.volume = 1.0; 
+
                     video.play().then(() => {
-                        console.log("Flusso riavviato e riproduzione ripresa in automatico!");
+                        console.log("Flusso riavviato e riproduzione ripresa CON AUDIO attivo!");
                     }).catch((playError) => {
-                        console.warn("Il browser ha bloccato il play automatico con audio. Tento riproduzione silenziosa...", playError);
-                        // Se fallisce per via delle policy sull'audio, prova a mutare un secondo per sbloccarlo
-                        video.muted = true;
-                        video.play();
+                        console.warn("Autoplay bloccato dal browser. Tento aggiramento immediato...", playError);
+                        // Se il browser fa resistenza e blocca il play, lo forziamo riattivando l'audio subito dopo
+                        video.muted = true; 
+                        video.play().then(() => {
+                            // Un millisecondo dopo il play forziamo lo smascheramento dell'audio
+                            setTimeout(() => {
+                                video.muted = false;
+                                video.volume = 1.0;
+                            }, 100);
+                        });
                     });
-                }, 500); // 500ms di delay per dare tempo al browser di agganciare l'hardware
+                }, 600); // Portato a 600ms per dare più stabilità al decoder hardware della TV
                 
             } catch (retryError) {
                 console.error("Tentativo di riavvio automatico fallito:", retryError);
