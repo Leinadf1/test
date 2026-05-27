@@ -60,7 +60,7 @@ const streams = {
     tnt: { 
         manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777218148_s~3c04d9eb-0182-41c8-839b-4642c3f270b3_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~65_x~ea6fc938e2b8183c42f657473c8d7942d45f3c931e32dc3d255d2f64c075a0af/nowgblin1/Content/CMAF_CTR_D1/Live/channel(tntsportultimateuhd)/master_2hr-all.mpd', 
         keys: { "111c36e35a0406b150ba557d489606aa": "4d1144b896229503f3f84e6b8764220d", "111c8504f18d1648ff8a82d78178e55c": "539435e7a6d369d51de51d04cbc842f2" } 
-    }, 
+    }
 }; 
  
 let player; 
@@ -69,22 +69,24 @@ async function loadStream(streamKey) {
     const stream = streams[streamKey]; 
     
     player.configure({ 
-        drm: { clearKeys: stream.keys },
+        drm: { 
+            clearKeys: stream.keys,
+            advanced: {
+                'org.w3.org.clearkey': {
+                    'videoRobustness': '',
+                    'audioRobustness': ''
+                }
+            }
+        },
         manifest: {
             dash: {
-                // Forza Shaka a ignorare l'orologio interno del server (spesso sballato sulle CDN)
-                // e a usare il timestamp interno dei segmenti video.
                 ignoreMinBufferTime: true,
                 autoCorrectTiming: true
             },
-            // Controlla gli aggiornamenti del manifest ogni 3 secondi per non perdere la diretta
             updatePeriod: 3
         },
         streaming: {
-            // Chiediamo al player di stare distanziato di 8 secondi dalla diretta reale.
-            // Questo evita che il lettore chieda segmenti non ancora pronti sul server.
             safeInSeconds: 8,
-            // Gestione aggressiva dei fallimenti di rete: se un segmento fallisce, riprova subito
             maxNumFailures: 10,
             failureCallback: function(error) {
                 console.warn("Segmento fallito, tento il recupero...", error);
@@ -95,7 +97,7 @@ async function loadStream(streamKey) {
 
     try { 
         await player.load(stream.manifest); 
-        console.log("Caricato con correzioni live:", streamKey); 
+        console.log("Caricato:", streamKey); 
     } catch (e) { 
         console.error("Errore caricamento:", e); 
     } 
@@ -107,9 +109,32 @@ async function init() {
     const controls = ui.getControls(); 
     player = controls.getPlayer(); 
  
-    // Avvio con Eurosport 4K
+    // Intercettore degli errori anti-blocco (Gestione Errore 3016 / MEDIA)
+    player.addEventListener('error', async (event) => {
+        const error = event.detail;
+        
+        // Se l'errore è di tipo MEDIA (decodifica) o codice critico 3016
+        if (error.category === shaka.util.Error.Category.MEDIA || error.code === 3016 || error.code === 244002) {
+            console.warn("Rilevato crash di decodifica (Errore 3016). Avvio reset forzato del canale...");
+            
+            // Trova il canale attualmente selezionato
+            const currentChannel = document.getElementById('streamSelector').value;
+            
+            try {
+                // Svuota i vecchi frammenti di memoria corrotti e ricarica il flusso da zero
+                await player.unload();
+                await loadStream(currentChannel);
+                console.log("Canale riavviato e sincronizzato automaticamente!");
+            } catch (retryError) {
+                console.error("Tentativo di riavvio automatico fallito:", retryError);
+            }
+        }
+    });
+
+    // Carica Eurosport 4K come primo canale di default all'avvio 
     loadStream('eurosport4k'); 
  
+    // Listener per il cambio canale 
     document.getElementById('streamSelector').addEventListener('change', (e) => { 
         loadStream(e.target.value); 
     }); 
