@@ -3,16 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UHD TV - Custom Player Node</title>
+    <title>UHD TV - Custom Player con Selettore Qualità</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.compiled.js"></script>
     <style>
         body { background-color: #0f0f0f; color: #ffffff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
         .container { width: 100%; max-width: 1000px; }
-        h1 { color: #ff9000; text-align: center; font-size: 26px; text-transform: uppercase; letter-spacing: 1px; }
+        h1 { color: #ff9000; text-align: center; font-size: 26px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+        .controls-row { display: flex; gap: 15px; margin-bottom: 25px; }
         select { 
-            width: 100%; padding: 14px; margin-bottom: 25px; background: #222; color: #fff; 
+            flex: 1; padding: 14px; background: #222; color: #fff; 
             border: 2px solid #ff9000; border-radius: 6px; font-size: 16px; cursor: pointer; outline: none;
         }
+        select:disabled { border-color: #555; color: #777; cursor: not-allowed; }
         .video-box { width: 100%; aspect-ratio: 16/9; background-color: #000; box-shadow: 0 15px 35px rgba(0,0,0,0.9); border-radius: 8px; overflow: hidden; }
         video { width: 100%; height: 100%; object-fit: contain; }
     </style>
@@ -22,14 +24,20 @@
 <div class="container">
     <h1>Multi-Stream Custom Dashboard</h1>
     
-    <select id="channelSelector">
-        <option value="f1">SKY SPORTS F1 UHD</option>
-        <option value="sports1">SKY SPORTS 1 UHD</option>
-        <option value="sports2">SKY SPORTS 2 UHD</option>
-        <option value="mainevent">SKY SPORTS MAIN EVENT UHD</option>
-        <option value="tnt">TNT SPORTS ULTIMATE UHD</option>
-        <option value="eurosport4k">EUROSPORT 4K (TIMVISION)</option>
-    </select>
+    <div class="controls-row">
+        <select id="channelSelector">
+            <option value="f1">SKY SPORTS F1 UHD</option>
+            <option value="sports1">SKY SPORTS 1 UHD</option>
+            <option value="sports2">SKY SPORTS 2 UHD</option>
+            <option value="mainevent">SKY SPORTS MAIN EVENT UHD</option>
+            <option value="tnt">TNT SPORTS ULTIMATE UHD</option>
+            <option value="eurosport4k">EUROSPORT 4K (TIMVISION)</option>
+        </select>
+
+        <select id="qualitySelector" disabled>
+            <option value="auto">Qualità: Automatica</option>
+        </select>
+    </div>
 
     <div class="video-box">
         <video id="videoPlayer" controls autoplay muted></video>
@@ -71,13 +79,15 @@ async function switchChannel(channelKey) {
     const targetData = streams[channelKey];
     if (!targetData) return;
 
-    console.log("Inizializzazione canale:", channelKey);
+    // Svuota e disabilita il menu qualità durante il caricamento del nuovo canale
+    const qualitySelector = document.getElementById('qualitySelector');
+    qualitySelector.innerHTML = '<option value="auto">Qualità: Automatica</option>';
+    qualitySelector.disabled = true;
 
-    // Applichiamo la configurazione DRM forzata, proprio come fa il pannello di nodrm.online
     shakaPlayer.configure({
         drm: {
             clearKeys: targetData.keys,
-            servers: {}, // Svuota i server di licenza standard per forzare la chiave locale
+            servers: {},
             advanced: {
                 'org.w3.org.clearkey': {
                     'distinctiveIdentifierRequired': false,
@@ -87,50 +97,97 @@ async function switchChannel(channelKey) {
                 }
             }
         },
-        manifest: {
-            dash: {
-                // Impostazioni per i manifest molto corti e dinamici di TIM
-                clockSyncUri: '' 
-            }
-        }
+        manifest: { dash: { clockSyncUri: '' } }
     });
 
     try {
-        // Carica lo stream nel player
         await shakaPlayer.load(targetData.manifest);
-        console.log("Flusso agganciato con successo!");
+        console.log("Flusso agganciato!");
+        // Una volta caricato lo stream, popoliamo il menu delle qualità
+        populateQualityMenu();
     } catch (error) {
-        console.error("Errore Shaka nell'aggancio del flusso:", error.code, error);
+        console.error("Errore Shaka:", error.code, error);
+    }
+}
+
+function populateQualityMenu() {
+    const qualitySelector = document.getElementById('qualitySelector');
+    
+    // Recupera tutte le tracce disponibili (escludendo quelle solo audio)
+    const tracks = shakaPlayer.getVariantTracks();
+    
+    // Ordina le tracce dalla risoluzione più alta a quella più bassa
+    tracks.sort((a, b) => b.height - a.height);
+
+    // Filtra per evitare risoluzioni doppie nel menu (es. se ci sono tracce con audio diversi)
+    const seenHeights = new Set();
+
+    tracks.forEach((track) => {
+        if (track.height && !seenHeights.has(track.height)) {
+            seenHeights.add(track.height);
+            const option = document.createElement('option');
+            option.value = track.id;
+            
+            // Etichetta carina per identificare il 4K rispetto al Full HD
+            let label = `${track.height}p (${track.width}x${track.height})`;
+            if (track.height >= 2160) label += ' [UHD/4K]';
+            else if (track.height >= 1080) label += ' [Full HD]';
+            
+            option.textContent = label;
+            qualitySelector.appendChild(option);
+        }
+    });
+
+    if (seenHeights.size > 0) {
+        qualitySelector.disabled = false;
     }
 }
 
 async function initPlayer() {
-    // Inizializza i polyfill di Shaka Player (fondamentali su iOS/Safari e alcune Smart TV)
     shaka.polyfill.installAll();
 
     if (!shaka.Player.isBrowserSupported()) {
-        alert('Attenzione: Questo browser non supporta le estensioni di decodifica MediaSource!');
+        alert('Browser non supportato!');
         return;
     }
 
     videoEl = document.getElementById('videoPlayer');
     shakaPlayer = new shaka.Player(videoEl);
 
-    // Gestione degli errori globali del lettore
     shakaPlayer.addEventListener('error', (event) => {
-        console.error('Shaka Player Runtime Error:', event.detail);
+        console.error('Shaka Error:', event.detail);
     });
 
-    // Avvio del primo canale della lista (F1 UHD)
     await switchChannel('f1');
 
-    // Gestore dell'evento di cambio canale dal menu a tendina
+    // Listener Cambio Canale
     document.getElementById('channelSelector').addEventListener('change', async (e) => {
         await switchChannel(e.target.value);
     });
+
+    // Listener Cambio Qualità manuale
+    document.getElementById('qualitySelector').addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (value === 'auto') {
+            // Riabilita l'Abitration (Adattamento automatico di Shaka in base alla banda)
+            shakaPlayer.configure({ abr: { enabled: true } });
+            console.log("Qualità impostata su: Automatica");
+        } else {
+            // Disattiva l'Avanzamento automatico per forzare la traccia scelta dall'utente
+            shakaPlayer.configure({ abr: { enabled: false } });
+            
+            const trackId = parseInt(value, 10);
+            const tracks = shakaPlayer.getVariantTracks();
+            const selectedTrack = tracks.find(t => t.id === trackId);
+            
+            if (selectedTrack) {
+                shakaPlayer.selectVariantTrack(selectedTrack, /* clearBuffer= */ true);
+                console.log(`Qualità bloccata su: ${selectedTrack.height}p`);
+            }
+        }
+    });
 }
 
-// Aspetta che il DOM sia pronto per caricare Shaka
 document.addEventListener('DOMContentLoaded', initPlayer);
 </script>
 </body>
