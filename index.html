@@ -22,12 +22,12 @@
     <h1>Multi-Stream UHD Player</h1> 
      
     <select id="streamSelector"> 
+        <option value="eurosport4k">EUROSPORT 4K</option> 
         <option value="f1">SKY SPORTS F1 UHD</option> 
         <option value="sports1">SKY SPORTS 1 UHD</option> 
         <option value="sports2">SKY SPORTS 2 UHD</option> 
         <option value="mainevent">SKY SPORTS MAIN EVENT UHD</option> 
         <option value="tnt">TNT SPORTS ULTIMATE UHD</option> 
-        <option value="eurosport4k">EUROSPORT 4K</option> 
     </select> 
  
     <div id="video-container" data-shaka-player-container> 
@@ -51,8 +51,8 @@ const streams = {
     }, 
     sports2: { 
         manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1777218149_s~df50d4a7-5fff-42a3-a2a9-02b5d680bf19_u~8ce0aa87875a2e53897aa559530193d95e063ecc5caf48221b529f01787c9f96b320501b87b632648bb42ce18911ea1a_l~59_x~aa349eba73f552f9b3e4769850376ba6f2cfdafa9a1c9f5f5e6c80352fd41048/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skyuhdsports2)/master_2hr-all.mpd', 
-        keys: { "111c16b39b650523d7a51c07eedeef01": "87b8223de40e047a10f094d3eb02dd55", "111c5ab918fc0f7d4ed948f1e1c08846": "d61325e9bd5f38bce8503f3f11602f44" }
-}, 
+        keys: { "111c16b39b650523d7a51c07eedeef01": "87b8223de40e047a10f094d3eb02dd55", "111c5ab918fc0f7d4ed948f1e1c08846": "d61325e9bd5f38bce8503f3f11602f44" } 
+    }, 
     mainevent: { 
         manifest: 'https://g006-lin-ie-cmaf-prd-ak.pcdn05.cssott02.com/v~a-0-0_e~1778486282_s~a8ad9f1a-e163-4d94-b2e5-1841a3cd911c_u~3e447b32158e09dcd5ce2ee9f7cf1cb7265d39219764d876d6c533f5955119fc3facea1ae472f8a8fd9bbda0da653a27_l~67_x~d20eb898c0ed406558ab5267b92e2fc0fb4634a01b97588038b4231fca556176/nowgblin1/Content/CMAF_CTR_D1/Live/channel(skysportsmaineventuhd)/master_2hr-all.mpd', 
         keys: { "111c25e7e37846b06c9b87f62658546e": "d30ab65c372dac38af450625169da171", "111ce0170cba6d5b3692f5b0d433e582": "74869e833e9d984df1a0d4954559187a" } 
@@ -67,9 +67,36 @@ let player;
  
 async function loadStream(streamKey) { 
     const stream = streams[streamKey]; 
+    
+    // Configurazione ottimizzata anti-interruzione e ClearKey
     player.configure({ 
-        drm: { clearKeys: stream.keys } 
+        drm: { 
+            clearKeys: stream.keys,
+            advanced: {
+                'org.w3.org.clearkey': {
+                    'videoRobustness': '',
+                    'audioRobustness': ''
+                }
+            }
+        },
+        // Attivazione dell'Adattamento bitrate dinamico (ABR)
+        abr: {
+            enabled: true,
+            defaultBandwidthEstimate: 500000, // Stima iniziale bassa per agganciare subito lo stream
+            switchInterval: 4, // Controlla la qualità ogni 4 secondi per reagire subito ai cali di rete
+            restrictions: {
+                minHeight: 360 // Permette di scendere fino a 360p pur di non stoppare il video
+            }
+        },
+        // Ottimizzazione del caricamento dei segmenti e del buffer live
+        streaming: {
+            bufferingGoal: 15, // Accumula fino a 15 secondi di video in anticipo
+            rebufferingGoal: 4, // Riparte appena ha incamerato almeno 4 secondi dopo un micro-blocco
+            bufferBehind: 30, // Tiene in memoria i 30 secondi passati
+            lowLatencyMode: true // Riduce la latenza per flussi UHD live
+        }
     }); 
+
     try { 
         await player.load(stream.manifest); 
         console.log("Caricato:", streamKey); 
@@ -84,7 +111,7 @@ async function init() {
     const controls = ui.getControls(); 
     player = controls.getPlayer(); 
  
-    // Carica il primo canale di default 
+    // Carica EUROSPORT 4K di default all'avvio dell'applicazione
     loadStream('eurosport4k'); 
  
     // Listener per il cambio canale 
