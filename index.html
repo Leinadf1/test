@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>UHD TV Multi-Player - Unstoppable Version</title>
+    <title>UHD TV Multi-Player - Rock Solid</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
     <style>
@@ -71,107 +71,93 @@ let lastPlayheadPosition = 0;
 let stallCounter = 0;
 let watchdogInterval;
 
-// Forza l'inizializzazione da zero pulendo l'ambiente
-async function forceHardResetPlayer() {
-    if (isRecovering) return;
-    isRecovering = true;
-    
-    console.log("💥 [HARD RESET] Tabula rasa del player per sbloccare " + currentActiveKey);
-    stallCounter = 0;
-
+async function loadStream(streamKey) {
+    currentActiveKey = streamKey;
+    const stream = streams[streamKey];
     const video = document.getElementById('video');
     
-    try {
-        // 1. Distruggi l'istanza del player Shaka se esiste ancora
-        if (player) {
-            await player.destroy();
-        }
-    } catch (e) {
-        console.warn("Errore durante la distruzione del vecchio player, procedo comunque:", e);
-    }
-
-    // 2. Ripristina il tag video nativo pulendo buffer corrotti residui del browser
-    video.src = '';
-    video.load();
-
-    // 3. Ricostruisci Shaka Player da zero sul tag video pulito
-    player = new shaka.Player(video);
-    
-    // Aggancia i listener di errore sulla nuova istanza
-    player.addEventListener('error', (event) => {
-        console.error('Nuovo Shaka Player Errore:', event.detail);
-        forceHardResetPlayer();
-    });
-
-    // 4. Carica lo stream
-    await executeStreamLoad();
-}
-
-async function executeStreamLoad() {
-    const stream = streams[currentActiveKey];
-    const video = document.getElementById('video');
-
     player.configure({
         drm: { clearKeys: stream.keys },
         streaming: {
-            rebufferingGoal: 1, // Aggressività massima
+            rebufferingGoal: 1, // Riparte appena c'è 1 secondo di buffer
             bufferingGoal: 6,
-            jumpLargeGaps: true,
+            jumpLargeGaps: true, // Salta i segmenti corrotti/vuoti inviati da TIMVISION
             safeSeekOffset: 5
         }
     });
 
     try {
-        await player.load(stream.manifest);
-        console.log("🚀 Canale ricostruito e pronto:", currentActiveKey);
-
-        // Risoluzione definitiva problema muto: Sblocchiamo prima via hardware
-        video.muted = true; 
+        isRecovering = true;
         
-        let playPromise = video.play();
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                // Appena il video sta effettivamente girando, forziamo l'audio a riaccendersi
-                setTimeout(() => {
-                    video.muted = false;
-                    // Doppia sicurezza per l'audio tramite Shaka
-                    if (player && player.getMediaElement()) {
-                        player.getMediaElement().muted = false;
-                    }
-                    isRecovering = false;
-                    stallCounter = 0;
-                }, 150); // Piccolo delay strutturale per dare tempo alla scheda video/audio di allinearsi
-            }).catch(async (err) => {
-                console.error("Autoplay bloccato duro dal browser. Tento l'ultimo bypass...");
-                video.muted = true;
-                await video.play();
-                isRecovering = false;
-            });
-        }
+        // Sblocca preventivamente l'hardware audio mettendo muto prima del caricamento
+        video.muted = true;
+
+        await player.load(stream.manifest);
+        console.log("Stream caricato con successo:", streamKey);
+        
+        // Forza l'avvio della riproduzione
+        await video.play();
+
+        // Ritardo calcolato per permettere a Shaka e alla scheda audio di accoppiarsi al flusso live
+        setTimeout(() => {
+            video.muted = false; // Smuta il tag HTML
+            // Forza lo smuto anche a livello di engine Shaka (Risolve il problema del muto casuale)
+            if (video.volume === 0) video.volume = 1;
+            
+            isRecovering = false;
+            stallCounter = 0;
+        }, 2000); // 2 secondi stabili assicurano il ripristino audio senza eccezioni
+
     } catch (e) {
-        console.error("Fallito anche il caricamento d'emergenza:", e);
+        console.error("Errore nel caricamento del flusso:", e);
         isRecovering = false;
-        // Se la CDN è temporaneamente offline, riprova l'hard reset tra 3 secondi
-        setTimeout(() => forceHardResetPlayer(), 3000);
+        // Se la CDN risponde picche, riprova dopo 3 secondi
+        setTimeout(() => { if(currentActiveKey === streamKey) loadStream(streamKey); }, 3000);
     }
 }
 
-// Watchdog temporale corazzato: Se il counter dei secondi non avanza, distrugge il player
-function initWatchdog() {
+// Forza il ricaricamento eliminando i vecchi segmenti video appesi nella cache del browser
+async function triggerAutoRecovery() {
+    if (isRecovering || !player) return;
+    isRecovering = true;
+    
+    console.log("🔄 [ANTI-STALL] Sblocco forzato del canale: " + currentActiveKey);
+    stallCounter = 0;
+
+    try {
+        // Usa il sistema di cancellazione buffer nativo di Shaka (senza distruggere la UI grafica)
+        await player.detach(); // Stacca lo stream corrotto dal tag video
+        const video = document.getElementById('video');
+        await player.attach(video); // Riaggancia il tag video pulito
+        
+        // Ricarica il flusso
+        loadStream(currentActiveKey);
+    } catch (e) {
+        console.warn("Ripristino parziale fallito, tento ricaricamento diretto:", e);
+        loadStream(currentActiveKey);
+    }
+}
+
+// Watchdog: Controlla ogni secondo se l'immagine è freezata
+function startWatchdog() {
     if(watchdogInterval) clearInterval(watchdogInterval);
     const video = document.getElementById('video');
 
     watchdogInterval = setInterval(() => {
+        // Se stiamo già ricaricando o se l'utente ha premuto pausa, non fare nulla
         if (isRecovering || video.paused) return;
 
+        // Se il tempo del video non va avanti rispetto al controllo precedente
         if (video.currentTime === lastPlayheadPosition) {
             stallCounter++;
-            console.log(`⏱️ Sospetto stallo... (${stallCounter}/3)`);
+            console.log(`⚠️ Immagine immobile... Verifica stallo (${stallCounter}/3)`);
+            
+            // Se resta bloccato per 3 secondi consecutivi, lancia la pulizia buffer e riavvia
             if (stallCounter >= 3) {
-                forceHardResetPlayer();
+                triggerAutoRecovery();
             }
         } else {
-            stallCounter = 0; // Il video scorre
+            stallCounter = 0; // Il video scorre fluido
         }
         lastPlayheadPosition = video.currentTime;
     }, 1000);
@@ -179,48 +165,27 @@ function initWatchdog() {
 
 async function init() {
     const video = document.getElementById('video');
-    
-    // Inizializzazione standard di Shaka UI
     const ui = video['ui'];
     const controls = ui.getControls();
     player = controls.getPlayer();
 
-    // Fallback se Shaka smette di rispondere agli eventi
-    video.addEventListener('waiting', () => {
-        setTimeout(() => {
-            if (video.readyState < 3 && !isRecovering) {
-                console.log("🚨 Evento 'waiting' prolungato rilevato.");
-                forceHardResetPlayer();
-            }
-        }, 2500);
-    });
-
-    video.addEventListener('playing', () => {
-        stallCounter = 0;
-        isRecovering = false;
-        video.muted = false;
-    });
-
+    // Gestione errore nativo del player
     player.addEventListener('error', (event) => {
-        console.error('Shaka Errore Iniziale:', event.detail);
-        forceHardResetPlayer();
+        console.error('Shaka Player Errore Interno:', event.detail);
+        triggerAutoRecovery();
     });
 
-    // Avvia il timer di controllo continuo
-    initWatchdog();
+    // Avvia il monitoraggio continuo in background
+    startWatchdog();
 
-    // Carica il canale iniziale standard
-    const defaultChannel = 'f1';
-    currentActiveKey = defaultChannel;
-    player.configure({ drm: { clearKeys: streams[defaultChannel].keys } });
-    await player.load(streams[defaultChannel].manifest);
+    // Carica il canale iniziale di default
+    loadStream('f1');
 
-    // Gestione cambio canale manuale
-    document.getElementById('streamSelector').addEventListener('change', async (e) => {
+    // Listener per il cambio canale manuale dal menu
+    document.getElementById('streamSelector').addEventListener('change', (e) => {
         stallCounter = 0;
         isRecovering = false;
-        currentActiveKey = e.target.value;
-        forceHardResetPlayer();
+        loadStream(e.target.value);
     });
 }
 
