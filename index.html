@@ -68,38 +68,34 @@ let player;
 async function loadStream(streamKey) { 
     const stream = streams[streamKey]; 
     
-    // Configurazione ottimizzata anti-interruzione e ClearKey
     player.configure({ 
-        drm: { 
-            clearKeys: stream.keys,
-            advanced: {
-                'org.w3.org.clearkey': {
-                    'videoRobustness': '',
-                    'audioRobustness': ''
-                }
-            }
+        drm: { clearKeys: stream.keys },
+        manifest: {
+            dash: {
+                // Forza Shaka a ignorare l'orologio interno del server (spesso sballato sulle CDN)
+                // e a usare il timestamp interno dei segmenti video.
+                ignoreMinBufferTime: true,
+                autoCorrectTiming: true
+            },
+            // Controlla gli aggiornamenti del manifest ogni 3 secondi per non perdere la diretta
+            updatePeriod: 3
         },
-        // Attivazione dell'Adattamento bitrate dinamico (ABR)
-        abr: {
-            enabled: true,
-            defaultBandwidthEstimate: 500000, // Stima iniziale bassa per agganciare subito lo stream
-            switchInterval: 4, // Controlla la qualità ogni 4 secondi per reagire subito ai cali di rete
-            restrictions: {
-                minHeight: 360 // Permette di scendere fino a 360p pur di non stoppare il video
-            }
-        },
-        // Ottimizzazione del caricamento dei segmenti e del buffer live
         streaming: {
-            bufferingGoal: 15, // Accumula fino a 15 secondi di video in anticipo
-            rebufferingGoal: 4, // Riparte appena ha incamerato almeno 4 secondi dopo un micro-blocco
-            bufferBehind: 30, // Tiene in memoria i 30 secondi passati
-            lowLatencyMode: true // Riduce la latenza per flussi UHD live
+            // Chiediamo al player di stare distanziato di 8 secondi dalla diretta reale.
+            // Questo evita che il lettore chieda segmenti non ancora pronti sul server.
+            safeInSeconds: 8,
+            // Gestione aggressiva dei fallimenti di rete: se un segmento fallisce, riprova subito
+            maxNumFailures: 10,
+            failureCallback: function(error) {
+                console.warn("Segmento fallito, tento il recupero...", error);
+                player.retry();
+            }
         }
     }); 
 
     try { 
         await player.load(stream.manifest); 
-        console.log("Caricato:", streamKey); 
+        console.log("Caricato con correzioni live:", streamKey); 
     } catch (e) { 
         console.error("Errore caricamento:", e); 
     } 
@@ -111,10 +107,9 @@ async function init() {
     const controls = ui.getControls(); 
     player = controls.getPlayer(); 
  
-    // Carica EUROSPORT 4K di default all'avvio dell'applicazione
+    // Avvio con Eurosport 4K
     loadStream('eurosport4k'); 
  
-    // Listener per il cambio canale 
     document.getElementById('streamSelector').addEventListener('change', (e) => { 
         loadStream(e.target.value); 
     }); 
