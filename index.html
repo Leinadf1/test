@@ -2,9 +2,8 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>UHD TV Multi-Player - Rock Solid Ultra</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
+    <title>UHD TV Multi-Player - Video.js Edition</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/8.10.0/video-js.min.css" rel="stylesheet">
     <style>
         body { background-color: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
         .container { width: 100%; max-width: 1200px; }
@@ -12,14 +11,18 @@
             width: 100%; padding: 15px; margin-bottom: 20px; background: #333; color: white; 
             border: 2px solid #ff9000; border-radius: 8px; font-size: 18px; cursor: pointer;
         }
-        #video-container { width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        #video-container { width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); position: relative; }
+        .video-js { width: 100% !important; height: auto !important; aspect-ratio: 16/9; }
+        /* Personalizzazione barra arancione in stile col vecchio player */
+        .video-js .vjs-play-progress, .video-js .vjs-volume-level { background-color: #ff9000; }
+        .video-js .vjs-control-bar { background-color: rgba(26, 26, 26, 0.9); }
         h1 { color: #ff9000; font-size: 24px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Multi-Stream UHD Player</h1>
+    <h1>Multi-Stream UHD Player (Video.js)</h1>
     
     <select id="streamSelector">
         <option value="f1">SKY SPORTS F1 UHD</option>
@@ -30,10 +33,13 @@
         <option value="eurosport4k">EUROSPORT 4K</option>
     </select>
 
-    <div id="video-container" data-shaka-player-container>
-        <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
+    <div id="video-container">
+        <video id="my-video" class="video-js vjs-default-skin vjs-big-play-centered" controls autoplay preload="auto" playsinline></video>
     </div>
 </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/8.10.0/video.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/videojs-contrib-eme@5.4.0/dist/videojs-contrib-eme.min.js"></script>
 
 <script>
 const streams = {
@@ -64,159 +70,116 @@ const streams = {
 };
 
 let player;
-let currentActiveKey = 'f1'; 
-let isRecovering = false;
+let currentKey = 'f1';
+let lastTime = 0;
+let stallCount = 0;
+let checkInterval;
 
-let lastPlayheadPosition = 0;
-let stallCounter = 0;
-let watchdogInterval;
-
-// HARD RESET: Forza l'inizializzazione da zero pulendo l'ambiente
-async function forceHardResetPlayer() {
-    if (isRecovering) return;
-    isRecovering = true;
-    
-    console.log("💥 [HARD RESET] Tabula rasa del player per sbloccare " + currentActiveKey);
-    stallCounter = 0;
-
-    const video = document.getElementById('video');
-    
-    try {
-        if (player) {
-            await player.destroy();
-        }
-    } catch (e) {
-        console.warn("Errore durante la distruzione del vecchio player, procedo comunque:", e);
+// Converte le chiavi standard nel formato richiesto dal modulo EME di Video.js
+function convertKeysToEME(clearKeys) {
+    const emeKeys = {};
+    for (const [keyId, key] of Object.entries(clearKeys)) {
+        // Mappa le chiavi in formato esadecimale pulito
+        emeKeys[keyId] = key;
     }
-
-    // Ripristina il tag video nativo pulendo buffer corrotti
-    video.src = '';
-    video.load();
-
-    // Ricostruisci Shaka Player da zero sul tag video pulito
-    player = new shaka.Player(video);
-    
-    player.addEventListener('error', (event) => {
-        console.error('Nuovo Shaka Player Errore:', event.detail);
-        forceHardResetPlayer();
-    });
-
-    await executeStreamLoad();
+    return emeKeys;
 }
 
-async function executeStreamLoad() {
-    const stream = streams[currentActiveKey];
-    const video = document.getElementById('video');
-
-    // Configurazione calibrata per flussi UHD pesanti
-    player.configure({
-        drm: { clearKeys: stream.keys },
-        streaming: {
-            rebufferingGoal: 3, // Tollera fino a 3 secondi di accumulo dati prima di ripartire
-            bufferingGoal: 12,  // Tiene un buffer più profondo di 12 secondi per evitare buchi
-            jumpLargeGaps: true,
-            safeSeekOffset: 5
+function playStream(streamKey) {
+    currentKey = streamKey;
+    const stream = streams[streamKey];
+    
+    stallCount = 0;
+    
+    // Configura i DRM (ClearKey) su Video.js usando il plugin EME
+    player.eme();
+    
+    player.src({
+        src: stream.manifest,
+        type: 'application/dash+xml',
+        keySystems: {
+            'org.w3.org.clearkey': {
+                clearkeys: convertKeysToEME(stream.keys)
+            }
         }
     });
 
-    try {
-        await player.load(stream.manifest);
-        console.log("🚀 Canale ricostruito e pronto:", currentActiveKey);
-
-        video.muted = true; 
+    // Avvio e gestione dell'audio intelligente
+    player.ready(() => {
+        // Impostiamo il muto iniziale per aggirare i blocchi hardware dei browser
+        player.muted(true);
         
-        let playPromise = video.play();
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
+        let extPlay = player.play();
+        if (extPlay !== undefined) {
+            extPlay.then(() => {
+                // Se parte, aspettiamo un secondo e riattiviamo l'audio in sicurezza
                 setTimeout(() => {
-                    video.muted = false;
-                    if (player && player.getMediaElement()) {
-                        player.getMediaElement().muted = false;
-                    }
-                    isRecovering = false;
-                    stallCounter = 0;
-                }, 150); 
-            }).catch(async (err) => {
-                console.error("Autoplay bloccato duro dal browser. Tento l'ultimo bypass...");
-                video.muted = true;
-                await video.play();
-                isRecovering = false;
+                    player.muted(false);
+                    player.volume(1.0);
+                }, 1000);
+            }).catch(() => {
+                console.log("Bypass autoplay fallito. Lascio i controlli attivi.");
             });
         }
-    } catch (e) {
-        console.error("Fallito anche il caricamento d'emergenza:", e);
-        isRecovering = false;
-        setTimeout(() => forceHardResetPlayer(), 3000);
-    }
+    });
 }
 
-// Watchdog temporale ricalibrato: aspetta 6 secondi di blocco effettivo prima di agire
-function initWatchdog() {
-    if(watchdogInterval) clearInterval(watchdogInterval);
-    const video = document.getElementById('video');
-
-    watchdogInterval = setInterval(() => {
-        if (isRecovering || video.paused) return;
-
-        if (video.currentTime === lastPlayheadPosition) {
-            stallCounter++;
-            console.log(`⏱️ Sospetto stallo... (${stallCounter}/6)`);
-            // Alzato a 6 secondi per evitare falsi positivi durante il normale buffering UHD
-            if (stallCounter >= 6) {
-                forceHardResetPlayer();
+// Watchdog ultra-leggero per Video.js: se la timeline si pianta per 5 secondi, rinfresca la sorgente
+function startWatchdog() {
+    if(checkInterval) clearInterval(checkInterval);
+    
+    checkInterval = setInterval(() => {
+        if (!player || player.paused()) return;
+        
+        const currentTime = player.currentTime();
+        
+        if (currentTime === lastTime) {
+            stallCount++;
+            console.log(`[Watchdog] Sospetto blocco... (${stallCount}/5)`);
+            if (stallCount >= 5) {
+                console.log("⚡ [RECOVERY] Video.js rilevato fermo. Ricarico il flusso.");
+                playStream(currentKey);
             }
         } else {
-            stallCounter = 0; 
+            stallCount = 0;
         }
-        lastPlayheadPosition = video.currentTime;
+        lastTime = currentTime;
     }, 1000);
 }
 
-async function init() {
-    const video = document.getElementById('video');
-    
-    const ui = video['ui'];
-    const controls = ui.getControls();
-    player = controls.getPlayer();
-
-    video.addEventListener('waiting', () => {
-        setTimeout(() => {
-            if (video.readyState < 3 && !isRecovering) {
-                console.log("🚨 Evento 'waiting' prolungato rilevato.");
-                forceHardResetPlayer();
+// Inizializzazione del Player al caricamento della pagina
+function initPlayer() {
+    player = videojs('my-video', {
+        fluid: true,
+        autoplay: true,
+        controls: true,
+        liveui: true, // Ottimizza l'interfaccia per flussi in diretta
+        html5: {
+            vhs: {
+                overrideNative: true,
+                bandwidth: 10000000 // Forza lo streaming a caricare la massima qualità (10Mbps per il 4K)
             }
-        }, 5000); // Alzato anche il timeout dell'evento nativo
+        }
     });
 
-    video.addEventListener('playing', () => {
-        stallCounter = 0;
-        isRecovering = false;
-        video.muted = false;
+    // Se il player riscontra errori interni di rete, si resetta da solo sul canale corrente
+    player.on('error', () => {
+        console.warn("Errore intercettato da Video.js, tentativo di ripristino...");
+        setTimeout(() => playStream(currentKey), 2000);
     });
 
-    player.addEventListener('error', (event) => {
-        console.error('Shaka Errore Iniziale:', event.detail);
-        forceHardResetPlayer();
-    });
+    // Avvia il controllo stallo e lancia il primo canale
+    startWatchdog();
+    playStream('f1');
 
-    initWatchdog();
-
-    // Carica il canale iniziale standard
-    const defaultChannel = 'f1';
-    currentActiveKey = defaultChannel;
-    player.configure({ drm: { clearKeys: streams[defaultChannel].keys } });
-    await player.load(streams[defaultChannel].manifest);
-
-    // Gestione cambio canale manuale
-    document.getElementById('streamSelector').addEventListener('change', async (e) => {
-        stallCounter = 0;
-        isRecovering = false;
-        currentActiveKey = e.target.value;
-        forceHardResetPlayer();
+    // Gestione del menu a tendina per il cambio canale
+    document.getElementById('streamSelector').addEventListener('change', (e) => {
+        playStream(e.target.value);
     });
 }
 
-document.addEventListener('shaka-ui-loaded', init);
+// Lancia l'inizializzazione quando la pagina è pronta
+window.addEventListener('DOMContentLoaded', initPlayer);
 </script>
 </body>
 </html>
