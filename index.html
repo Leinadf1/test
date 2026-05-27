@@ -2,26 +2,24 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>UHD TV Multi-Player - Clappr Engine</title>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@clappr/core@latest/dist/clappr-core.min.js"></script>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/clappr-dash-ass-plugin@latest/dist/clappr-dash-plugin.min.js"></script>
+    <title>UHD TV Multi-Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
     <style>
         body { background-color: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
         .container { width: 100%; max-width: 1200px; }
         select { 
             width: 100%; padding: 15px; margin-bottom: 20px; background: #333; color: white; 
             border: 2px solid #ff9000; border-radius: 8px; font-size: 18px; cursor: pointer;
-            outline: none;
         }
-        #player-wrapper { width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); background: #000; aspect-ratio: 16/9; }
+        #video-container { width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
         h1 { color: #ff9000; font-size: 24px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Multi-Stream UHD Player (Clappr Engine)</h1>
+    <h1>Multi-Stream UHD Player</h1>
     
     <select id="streamSelector">
         <option value="f1">SKY SPORTS F1 UHD</option>
@@ -32,7 +30,9 @@
         <option value="eurosport4k">EUROSPORT 4K</option>
     </select>
 
-    <div id="player-wrapper"></div>
+    <div id="video-container" data-shaka-player-container>
+        <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
+    </div>
 </div>
 
 <script>
@@ -59,98 +59,41 @@ const streams = {
     },
     eurosport4k: {
         manifest: 'https://timlivetu0.cb.ticdn.it/Content/DASH/Live/channel(eurosport4k)/manifest.mpd',
-        keys: { "9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360","fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df","dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847","31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5","a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468" }
-    }
+        keys: {"9ceae06c6ad34aada83ba86c0b511452":"406862beb4af1ef8fe04ba15d9936360","fcd924bd2e45470fa2ae50ef05e357c0":"266db84d3572bc889185274a90ff31df","dea135e33341468f8a4e8da806d8a6e6":"fb7423db39e6fab75056f8c83f415847","31911db90ee3410f8b38e45659d01fb1":"ac316ab7dfd2b50faf6d44633e4fedd5","a16f2a39adbb4974b8910cec8a651a09":"c2d55e0111af955f47214af209a2c468"}
+    },
 };
 
-let clapprPlayer = null;
-let currentKey = 'f1';
-let watchdogTimer = null;
-let lastPosition = 0;
-let stallCount = 0;
+let player;
 
-function initClappr(streamKey) {
-    currentKey = streamKey;
+async function loadStream(streamKey) {
     const stream = streams[streamKey];
-    
-    // Se c'è già un'istanza del player attiva, distruggila in modo pulito hardware
-    if (clapprPlayer) {
-        clapprPlayer.destroy();
+    player.configure({
+        drm: { clearKeys: stream.keys }
+    });
+    try {
+        await player.load(stream.manifest);
+        console.log("Caricato:", streamKey);
+    } catch (e) {
+        console.error("Errore caricamento:", e);
     }
-
-    stallCount = 0;
-
-    // Configurazione nativa di Clappr con gestione protetta ClearKey via dash.js
-    clapprPlayer = new Clappr.Player({
-        source: stream.manifest,
-        parentId: "#player-wrapper",
-        plugins: [DashShakaPlayback], // Aggancia il motore di riproduzione DASH a basso livello
-        width: '100%',
-        height: '100%',
-        autoPlay: true,
-        mute: true, // Muto iniziale obbligatorio per bypassare i blocchi di sicurezza dei browser
-        mediacontrol: { seekbar: "#ff9000", buttons: "#ff9000" },
-        dashGoesWith: {
-            protectionData: {
-                "org.w3.org.clearkey": {
-                    clearkeys: stream.keys
-                }
-            }
-        },
-        events: {
-            onReady: function() {
-                console.log("Clappr pronto per il canale:", streamKey);
-                // Prova a togliere il muto dopo mezzo secondo dall'avvio effettivo
-                setTimeout(() => {
-                    if (clapprPlayer && clapprPlayer.core) {
-                        clapprPlayer.unmute();
-                    }
-                }, 600);
-            },
-            onError: function(e) {
-                console.warn("Rilevato errore di riproduzione, avvio ripristino automatico...");
-                setTimeout(() => initClappr(currentKey), 2000);
-            }
-        }
-    });
 }
 
-// Watchdog di controllo: se lo stream si congela per 5 secondi, Clappr lo ricarica da zero
-function startWatchdog() {
-    if (watchdogTimer) clearInterval(watchdogTimer);
+async function init() {
+    const video = document.getElementById('video');
+    const ui = video['ui'];
+    const controls = ui.getControls();
+    player = controls.getPlayer();
 
-    watchdogTimer = setInterval(() => {
-        if (!clapprPlayer || !clapprPlayer.core) return;
-        
-        const videoElement = clapprPlayer.core.getCurrentPlayback().el;
-        if (!videoElement || videoElement.paused) return;
+    // Carica il primo canale di default
+    loadStream('f1');
 
-        if (videoElement.currentTime === lastPosition) {
-            stallCount++;
-            console.log(`[Watchdog Clappr] Sospetto blocco... (${stallCount}/5)`);
-            if (stallCount >= 5) {
-                console.log("⚡ [RECOVERY] Ripristino forzato del flusso bloccato.");
-                initClappr(currentKey);
-            }
-        } else {
-            stallCount = 0;
-        }
-        lastPosition = videoElement.currentTime;
-    }, 1000);
-}
-
-// Avvio iniziale dell'applicazione
-function startApp() {
-    initClappr('f1');
-    startWatchdog();
-
-    // Listener del selettore canali
+    // Listener per il cambio canale
     document.getElementById('streamSelector').addEventListener('change', (e) => {
-        initClappr(e.target.value);
+        loadStream(e.target.value);
     });
 }
 
-window.addEventListener('DOMContentLoaded', startApp);
+document.addEventListener('shaka-ui-loaded', init);
 </script>
 </body>
 </html>
