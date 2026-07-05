@@ -88,74 +88,40 @@
         }
     };
 
-    // Configurazione specifica per Eurosport 4K
-    const eurosportConfig = {
-        streaming: {
-            bufferingGoal: 5,            // solo 5 secondi di buffer (per restare vicino all'edge)
-            rebufferingGoal: 3,
-            safeInSeconds: 1,            // distanza minima dal vivo (il server ha già 2 min di ritardo)
-            stallThreshold: 2,           // interviene dopo 2s di stallo
-            liveSync: {
-                enabled: true,
-                targetLatency: 0,        // segmento più fresco disponibile
-                maxLatency: 2,
-                minLatency: 0
-            }
-        },
-        manifest: {
-            dash: {
-                autoCorrectTiming: true,
-                ignoreMinBufferTime: true,
-                defaultPresentationDelay: 0
-            }
-        },
-        abr: {
-            enabled: true,
-            switchInterval: 2,
-            // Per disabilitare il 4K (se il decoder hardware crasha spesso) decommenta la riga sotto
-            // restrictions: { maxHeight: 1080 }
-        }
-    };
-
     let player;
     let currentStreamKey = 'eurosport4k';
-    let stallCleanup = null; // funzione per rimuovere i listener di stallo
+    let stallCheckInterval = null;
 
-    // Rilevamento stallo: dopo 10 secondi di "waiting" forza la ricarica dello stesso canale
-    function setupStallDetection(video, streamKey) {
-        let stallTimer = null;
+    // Watchdog: controlla ogni 5 secondi se il video è fermo da più di 15 secondi
+    function startStallWatchdog(video, streamKey) {
+        if (stallCheckInterval) clearInterval(stallCheckInterval);
+        let lastTime = video.currentTime;
+        let stallStart = null;
 
-        const onWaiting = () => {
-            stallTimer = setTimeout(() => {
-                console.warn("Stallo prolungato (>10s). Ricarico il flusso...");
-                loadStream(streamKey);
-            }, 10000);
-        };
+        stallCheckInterval = setInterval(() => {
+            if (video.paused || video.ended) return;
 
-        const onPlaying = () => {
-            if (stallTimer) {
-                clearTimeout(stallTimer);
-                stallTimer = null;
+            const now = video.currentTime;
+            if (now === lastTime) {
+                if (!stallStart) stallStart = Date.now();
+                else if (Date.now() - stallStart > 15000) { // 15 secondi di stallo
+                    console.warn('Stallo rilevato (>15s). Ricarico il flusso...');
+                    loadStream(streamKey);
+                    stallStart = null;
+                }
+            } else {
+                lastTime = now;
+                stallStart = null;
             }
-        };
-
-        video.addEventListener('waiting', onWaiting);
-        video.addEventListener('playing', onPlaying);
-
-        // Restituisce una funzione di pulizia per rimuovere i listener
-        return () => {
-            video.removeEventListener('waiting', onWaiting);
-            video.removeEventListener('playing', onPlaying);
-            if (stallTimer) clearTimeout(stallTimer);
-        };
+        }, 5000);
     }
 
     async function loadStream(streamKey) {
         currentStreamKey = streamKey;
         const stream = streams[streamKey];
 
-        // Configurazione base
-        let config = {
+        // Configurazione fluida (simile alla tua originale, con piccoli ritocchi)
+        player.configure({
             drm: {
                 clearKeys: stream.keys,
                 advanced: {
@@ -173,46 +139,32 @@
                 updatePeriod: 5
             },
             streaming: {
-                bufferingGoal: 25,
-                rebufferingGoal: 6,
-                safeInSeconds: 12,
+                bufferingGoal: 25,           // Buffer ampio per fluidità
+                rebufferingGoal: 8,
+                safeInSeconds: 10,           // Distanza dal vivo sufficiente, ma non eccessiva
                 stallThreshold: 4,
                 maxNumFailures: 15,
                 failureCallback: function(error) {
-                    console.warn("Segmento fallito, avvio buffering di recupero...", error);
+                    console.warn("Segmento fallito, ritento...", error);
                     player.retry();
                 }
             },
             abr: {
                 enabled: true,
-                switchInterval: 5,
+                switchInterval: 5,           // Cambi qualità più lenti
                 restrictions: {
                     minHeight: 360
                 }
             }
-        };
-
-        // Applica override per Eurosport 4K
-        if (streamKey === 'eurosport4k') {
-            config = { ...config, ...eurosportConfig };
-            console.log("Configurazione Eurosport 4K attiva – buffer ridotto, sync forzata");
-        }
-
-        player.configure(config);
-
-        // Pulizia precedente rilevamento stallo
-        if (stallCleanup) {
-            stallCleanup();
-            stallCleanup = null;
-        }
+        });
 
         try {
             await player.load(stream.manifest);
             console.log("Caricato:", streamKey);
 
-            // Attiva rilevamento stallo sul video
+            // Avvia il controllo stallo
             const video = document.getElementById('video');
-            stallCleanup = setupStallDetection(video, streamKey);
+            startStallWatchdog(video, streamKey);
         } catch (e) {
             console.error("Errore caricamento:", e);
         }
@@ -224,11 +176,11 @@
         const controls = ui.getControls();
         player = controls.getPlayer();
 
-        // Gestione errori critici (3016 – decoder hardware bloccato)
+        // Gestione errori critici (3016)
         player.addEventListener('error', async (event) => {
             const error = event.detail;
             if (error.code === 3016 || error.code === 244002) {
-                console.warn("Errore 3016/244002. Riavvio forzato...");
+                console.warn("Errore 3016/244002. Riavvio...");
                 try {
                     await player.unload();
                     await loadStream(currentStreamKey);
@@ -245,15 +197,15 @@
                         });
                     }, 600);
                 } catch (retryError) {
-                    console.error("Tentativo di riavvio fallito:", retryError);
+                    console.error("Riavvio fallito:", retryError);
                 }
             }
         });
 
-        // Carica il canale di default (Eurosport 4K)
+        // Carica subito Eurosport 4K
         loadStream('eurosport4k');
 
-        // Listener per cambio canale
+        // Cambio canale
         document.getElementById('streamSelector').addEventListener('change', (e) => {
             loadStream(e.target.value);
         });
