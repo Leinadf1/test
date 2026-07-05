@@ -1,0 +1,13 @@
+{
+  "name": "eurosport-proxy",
+  "version": "1.0.0",
+  "description": "Proxy per mantenere viva la sessione del canale",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.6.7"
+  }
+}
