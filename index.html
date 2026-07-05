@@ -39,6 +39,19 @@
             color: #ff9000;
             font-size: 24px;
         }
+        .error-overlay {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border: 2px solid red;
+            border-radius: 8px;
+            text-align: center;
+            z-index: 100;
+        }
     </style>
 </head>
 <body>
@@ -55,8 +68,12 @@
         <option value="tnt">TNT SPORTS ULTIMATE UHD</option>
     </select>
 
-    <div id="video-container" data-shaka-player-container>
+    <div id="video-container" data-shaka-player-container style="position: relative;">
         <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
+        <div id="error-overlay" class="error-overlay">
+            <p>⚠️ Impossibile riprodurre il canale.</p>
+            <p style="font-size:14px;">Tocca per riprovare</p>
+        </div>
     </div>
 </div>
 
@@ -91,6 +108,25 @@
     let player;
     let currentStreamKey = 'eurosport4k';
     let stallCheckInterval = null;
+    let recoveryAttempts = 0;           // conteggio tentativi di recupero recenti
+    let lastRecoveryTime = 0;          // timestamp ultimo tentativo
+    let isLoading = false;             // semaforo per evitare ricariche multiple
+
+    // Backoff calcolato in base ai tentativi
+    function getBackoffDelay() {
+        return Math.min(2000 * Math.pow(2, recoveryAttempts), 30000); // max 30 secondi
+    }
+
+    // Resetta il contatore tentativi dopo un periodo senza errori
+    function resetRecoveryCounter() {
+        recoveryAttempts = 0;
+        lastRecoveryTime = 0;
+    }
+
+    // Mostra / nasconde overlay di errore
+    function showErrorOverlay(show) {
+        document.getElementById('error-overlay').style.display = show ? 'block' : 'none';
+    }
 
     // Watchdog: controlla ogni 5 secondi se il video è fermo da più di 15 secondi
     function startStallWatchdog(video, streamKey) {
@@ -99,15 +135,16 @@
         let stallStart = null;
 
         stallCheckInterval = setInterval(() => {
+            if (isLoading) return; // non intervenire durante una ricarica
             if (video.paused || video.ended) return;
 
             const now = video.currentTime;
             if (now === lastTime) {
                 if (!stallStart) stallStart = Date.now();
-                else if (Date.now() - stallStart > 15000) { // 15 secondi di stallo
-                    console.warn('Stallo rilevato (>15s). Ricarico il flusso...');
-                    loadStream(streamKey);
+                else if (Date.now() - stallStart > 15000) {
+                    console.warn('Stallo rilevato (>15s). Avvio recupero...');
                     stallStart = null;
+                    attemptRecovery(streamKey);
                 }
             } else {
                 lastTime = now;
@@ -116,11 +153,63 @@
         }, 5000);
     }
 
-    async function loadStream(streamKey) {
+    // Funzione di recupero intelligente
+    async function attemptRecovery(streamKey) {
+        const now = Date.now();
+
+        // Se ci sono stati più di 3 tentativi nell'ultimo minuto, ferma tutto
+        if (now - lastRecoveryTime < 60000 && recoveryAttempts >= 3) {
+            console.error("Troppi tentativi di recupero. Arresto definitivo.");
+            showErrorOverlay(true);
+            if (stallCheckInterval) clearInterval(stallCheckInterval);
+            return;
+        }
+
+        recoveryAttempts++;
+        lastRecoveryTime = now;
+        isLoading = true;
+
+        console.log(`Tentativo di recupero #${recoveryAttempts} tra ${getBackoffDelay() / 1000}s...`);
+
+        // Attendi il backoff
+        await new Promise(resolve => setTimeout(resolve, getBackoffDelay()));
+
+        try {
+            await player.unload();
+            console.log("Player unload riuscito.");
+        } catch (e) {
+            console.warn("Unload fallito, proseguo comunque:", e);
+        }
+
+        try {
+            await loadStream(streamKey, true); // true = ricarica forzata
+            console.log("Recupero riuscito!");
+            resetRecoveryCounter();
+            showErrorOverlay(false);
+        } catch (e) {
+            console.error("Recupero fallito:", e);
+            // Se il caricamento fallisce ancora, dopo un po' riprova
+            if (recoveryAttempts < 3) {
+                setTimeout(() => attemptRecovery(streamKey), 5000);
+            } else {
+                showErrorOverlay(true);
+                console.error("Massimo tentativi di recupero raggiunti.");
+            }
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    // Caricamento stream (con parametro opzionale per ricarica)
+    async function loadStream(streamKey, isRecovery = false) {
+        if (isLoading && !isRecovery) {
+            console.warn("Caricamento già in corso, ignoro richiesta.");
+            return;
+        }
+        isLoading = true;
         currentStreamKey = streamKey;
         const stream = streams[streamKey];
 
-        // Configurazione fluida (simile alla tua originale, con piccoli ritocchi)
         player.configure({
             drm: {
                 clearKeys: stream.keys,
@@ -139,9 +228,9 @@
                 updatePeriod: 5
             },
             streaming: {
-                bufferingGoal: 25,           // Buffer ampio per fluidità
+                bufferingGoal: 25,
                 rebufferingGoal: 8,
-                safeInSeconds: 10,           // Distanza dal vivo sufficiente, ma non eccessiva
+                safeInSeconds: 10,
                 stallThreshold: 4,
                 maxNumFailures: 15,
                 failureCallback: function(error) {
@@ -151,7 +240,7 @@
             },
             abr: {
                 enabled: true,
-                switchInterval: 5,           // Cambi qualità più lenti
+                switchInterval: 5,
                 restrictions: {
                     minHeight: 360
                 }
@@ -162,11 +251,22 @@
             await player.load(stream.manifest);
             console.log("Caricato:", streamKey);
 
-            // Avvia il controllo stallo
+            // Avvia watchdog solo se non è già attivo
             const video = document.getElementById('video');
             startStallWatchdog(video, streamKey);
+
+            // Reset contatore dopo caricamento riuscito
+            if (!isRecovery) resetRecoveryCounter();
         } catch (e) {
-            console.error("Errore caricamento:", e);
+            console.error("Errore caricamento iniziale:", e);
+            if (!isRecovery) {
+                // Al primo fallimento, tenta recupero immediato
+                attemptRecovery(streamKey);
+            } else {
+                throw e; // rilancia per gestione superiore
+            }
+        } finally {
+            isLoading = false;
         }
     }
 
@@ -176,37 +276,29 @@
         const controls = ui.getControls();
         player = controls.getPlayer();
 
-        // Gestione errori critici (3016)
+        // Gestione errori critici (3016) – ora delegata al tentativo di recupero
         player.addEventListener('error', async (event) => {
             const error = event.detail;
             if (error.code === 3016 || error.code === 244002) {
-                console.warn("Errore 3016/244002. Riavvio...");
-                try {
-                    await player.unload();
-                    await loadStream(currentStreamKey);
-                    setTimeout(() => {
-                        video.muted = false;
-                        video.volume = 1.0;
-                        video.play().catch(() => {
-                            video.muted = true;
-                            video.play();
-                            setTimeout(() => {
-                                video.muted = false;
-                                video.volume = 1.0;
-                            }, 100);
-                        });
-                    }, 600);
-                } catch (retryError) {
-                    console.error("Riavvio fallito:", retryError);
-                }
+                console.warn("Errore 3016/244002. Avvio recupero...");
+                attemptRecovery(currentStreamKey);
             }
         });
 
-        // Carica subito Eurosport 4K
+        // Overlay tocca per riprovare
+        document.getElementById('error-overlay').addEventListener('click', () => {
+            resetRecoveryCounter();
+            showErrorOverlay(false);
+            loadStream(currentStreamKey);
+        });
+
+        // Carica canale iniziale
         loadStream('eurosport4k');
 
         // Cambio canale
         document.getElementById('streamSelector').addEventListener('change', (e) => {
+            resetRecoveryCounter();
+            showErrorOverlay(false);
             loadStream(e.target.value);
         });
     }
