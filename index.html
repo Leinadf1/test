@@ -2,9 +2,10 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>UHD TV Multi-Player</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/shaka-player.ui.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.11/controls.min.css">
+    <title>UHD TV Multi-Player - Eurosport 4K Optimized</title>
+    <!-- Aggiornato a Shaka Player v5.0.5 per massima stabilitÃ  con flussi 4K HEVC -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/5.0.5/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/5.0.5/controls.min.css">
     <style>
         body {
             background-color: #1a1a1a;
@@ -33,7 +34,10 @@
         }
         #video-container {
             width: 100%;
+            aspect-ratio: 16 / 9;
+            background-color: #000;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            position: relative;
         }
         h1 {
             color: #ff9000;
@@ -44,7 +48,7 @@
 <body>
 
 <div class="container">
-    <h1>Multi-Stream UHD Player</h1>
+    <h1>Multi-Stream UHD Player (con Fix Eurosport 4K & GPU Recovery)</h1>
 
     <select id="streamSelector">
         <option value="eurosport4k">EUROSPORT 4K</option>
@@ -56,7 +60,7 @@
     </select>
 
     <div id="video-container" data-shaka-player-container>
-        <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
+        <video autoplay playsinline data-shaka-player id="video" style="width:100%;height:100%"></video>
     </div>
 </div>
 
@@ -88,127 +92,338 @@
         }
     };
 
-    let player;
+    let player = null;
     let currentStreamKey = 'eurosport4k';
-    let stallCheckInterval = null;
+    let isRecovering = false;
+    let isUnloading = false;
+    let lastRecoveryTime = 0;
+    let playheadWatchdogInterval = null;
+    let hasStartedPlaying = false;
 
-    // Watchdog: controlla ogni 5 secondi se il video è fermo da più di 15 secondi
-    function startStallWatchdog(video, streamKey) {
-        if (stallCheckInterval) clearInterval(stallCheckInterval);
-        let lastTime = video.currentTime;
-        let stallStart = null;
+    function startPlayheadWatchdog() {
+        clearInterval(playheadWatchdogInterval);
+        let lastPlayheadTime = -1;
+        let stallCount = 0;
+        
+        playheadWatchdogInterval = setInterval(() => {
+            const videoEl = document.getElementById('video');
+            if (!videoEl || !player) return;
+            
+            if (document.hidden) {
+                stallCount = 0;
+                return;
+            }
 
-        stallCheckInterval = setInterval(() => {
-            if (video.paused || video.ended) return;
-
-            const now = video.currentTime;
-            if (now === lastTime) {
-                if (!stallStart) stallStart = Date.now();
-                else if (Date.now() - stallStart > 15000) { // 15 secondi di stallo
-                    console.warn('Stallo rilevato (>15s). Ricarico il flusso...');
-                    loadStream(streamKey);
-                    stallStart = null;
+            if (hasStartedPlaying && !videoEl.paused && !videoEl.ended && !isRecovering && videoEl.readyState >= 3) {
+                const currentTime = videoEl.currentTime;
+                if (currentTime === lastPlayheadTime) {
+                    stallCount++;
+                    console.warn('warning playhead fermo conto ' + stallCount + ' di 6 time ' + currentTime.toFixed(2));
+                    if (stallCount >= 6) {
+                        console.error('stallo totale di 12 secondi avvio recovery gpu');
+                        stopPlayheadWatchdog();
+                        handleAutoRecovery({
+                            code: 3016,
+                            category: 3,
+                            severity: 2,
+                            message: 'stallo watchdog',
+                            fromWatchdog: true
+                        });
+                    }
+                } else {
+                    stallCount = 0;
+                    lastPlayheadTime = currentTime;
                 }
             } else {
-                lastTime = now;
-                stallStart = null;
+                stallCount = 0;
             }
-        }, 5000);
+        }, 2000);
+        console.log('watchdog avviato');
     }
 
-    async function loadStream(streamKey) {
+    function stopPlayheadWatchdog() {
+        clearInterval(playheadWatchdogInterval);
+        hasStartedPlaying = false;
+        console.log('watchdog fermato');
+    }
+
+    function onPlaying() {
+        console.log('video playing avvio watchdog');
+        hasStartedPlaying = true;
+        startPlayheadWatchdog();
+    }
+
+    async function domTeardownRecovery() {
+        console.log('recovery svuoto dom e resetto video gpu');
+        stopPlayheadWatchdog();
+        isRecovering = true;
+        
+        const wasFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+        
+        const origExitFullscreen = document.exitFullscreen;
+        const origWebkitExitFullscreen = document.webkitExitFullscreen;
+        const origMozCancelFullScreen = document.mozCancelFullScreen;
+        const origMsExitFullscreen = document.msExitFullscreen;
+        const noop = () => { console.log('ignoro exit fullscreen temporaneo'); };
+        
+        try {
+            if (document.exitFullscreen) document.exitFullscreen = noop;
+            if (document.webkitExitFullscreen) document.webkitExitFullscreen = noop;
+            if (document.mozCancelFullScreen) document.mozCancelFullScreen = noop;
+            if (document.msExitFullscreen) document.msExitFullscreen = noop;
+        } catch (e) {}
+        
+        const containerEl = document.getElementById('video-container');
+        const oldVideo = document.getElementById('video');
+
+        let playerDestroyedByUi = false;
+        if (oldVideo && oldVideo['ui']) {
+            try {
+                console.log('distruggo ui vecchia');
+                const oldUi = oldVideo['ui'];
+                oldVideo['ui'] = null;
+                await Promise.race([
+                    oldUi.destroy(),
+                    new Promise(resolve => setTimeout(resolve, 1000))
+                ]);
+                playerDestroyedByUi = true;
+                console.log('ui vecchia andata');
+            } catch (err) {
+                console.warn('errore nel buttare la ui ' + err.message);
+            }
+        }
+
+        if (player && !playerDestroyedByUi) {
+            try {
+                console.log('distruggo player vecchio');
+                const playerToDestroy = player;
+                player = null;
+                await Promise.race([
+                    playerToDestroy.destroy(),
+                    new Promise(resolve => setTimeout(resolve, 1000))
+                ]);
+                console.log('player vecchio andato');
+            } catch (err) {
+                console.warn('errore nel buttare il player ' + err.message);
+            }
+        }
+        
+        try {
+            if (origExitFullscreen) document.exitFullscreen = origExitFullscreen;
+            if (origWebkitExitFullscreen) document.webkitExitFullscreen = origWebkitExitFullscreen;
+            if (origMozCancelFullScreen) document.mozCancelFullScreen = origMozCancelFullScreen;
+            if (origMsExitFullscreen) document.msExitFullscreen = origMsExitFullscreen;
+        } catch (e) {}
+        
+        if (containerEl) {
+            const oldControls = containerEl.querySelectorAll('.shaka-controls-container');
+            oldControls.forEach(el => el.remove());
+        }
+        
+        if (oldVideo) {
+            oldVideo.removeAttribute('src');
+            oldVideo.load();
+            oldVideo.remove();
+            console.log('video tag rimosso aspetto 1.5s');
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        
+        const newVideo = document.createElement('video');
+        newVideo.id = 'video';
+        newVideo.className = 'shaka-video';
+        newVideo.autoplay = true;
+        newVideo.playsInline = true;
+        newVideo.style.width = '100%';
+        newVideo.style.height = '100%';
+        if (containerEl) containerEl.appendChild(newVideo);
+        newVideo.setAttribute('data-shaka-player', '');
+        newVideo.addEventListener('playing', onPlaying);
+        console.log('nuovo tag video pronto');
+        
+        player = new shaka.Player();
+        registerEvents(player);
+        
+        await player.attach(newVideo).catch(err => console.error('errore attach ' + err));
+        
+        try {
+            const newUi = new shaka.ui.Overlay(player, containerEl, newVideo);
+            newUi.configure({ clearBufferOnQualityChange: true });
+            newVideo['ui'] = newUi;
+            console.log('nuova ui pronta');
+        } catch (err) {
+            console.error('errore ui init ' + err);
+        }
+        
+        isRecovering = false;
+        await loadStream(currentStreamKey, true, wasFullscreen);
+    }
+
+    function handleAutoRecovery(e) {
+        if (!e) return;
+        if (typeof e === 'object') e.handled = true;
+        if (isUnloading || isRecovering || (e && e.code === 1008)) return;
+        if (e && e.severity === 1) return;
+
+        const now = Date.now();
+        if (now - lastRecoveryTime < 1500) return;
+        lastRecoveryTime = now;
+
+        const is4K = currentStreamKey === 'eurosport4k' || currentStreamKey === 'f1' || currentStreamKey === 'sports1' || currentStreamKey === 'sports2' || currentStreamKey === 'mainevent' || currentStreamKey === 'tnt';
+        const isTim4K = currentStreamKey === 'eurosport4k';
+
+        console.warn('errore intercettato codice ' + e.code + ' cat ' + e.category + ' msg ' + e.message);
+
+        if (e.code === 3016 || e.code === 3015 || e.code === 3014 || e.code === 244002 || e.category === 3 || e.category === 7) {
+            window.__shakaRetries = (window.__shakaRetries || 0) + 1;
+            
+            if (is4K || isTim4K || e.code === 3016 || e.code === 244002 || window.__shakaRetries >= 2) {
+                console.warn('errore decoder gpu o stallo persistente su 4k dom recovery');
+                domTeardownRecovery();
+            } else {
+                console.warn('errore non bloccante ricarico stream tentativi ' + window.__shakaRetries);
+                loadStream(currentStreamKey);
+            }
+        }
+    }
+
+    function registerEvents(targetPlayer) {
+        targetPlayer.addEventListener('error', (event) => {
+            const error = event.detail;
+            if (error) {
+                error.handled = true;
+                handleAutoRecovery(error);
+            }
+        });
+
+        targetPlayer.addEventListener('buffering', (event) => {
+            console.log('buffering ' + (event.buffering ? 'start' : 'stop'));
+        });
+    }
+
+    async function loadStream(streamKey, isFromRecovery = false, preserveFullscreen = false) {
+        if (!isFromRecovery && isRecovering) return;
         currentStreamKey = streamKey;
         const stream = streams[streamKey];
+        if (!stream) return;
 
-        // Configurazione fluida (simile alla tua originale, con piccoli ritocchi)
-        player.configure({
+        const video = document.getElementById('video');
+        if (!video || !player) return;
+
+        console.log('carico ' + streamKey);
+
+        const is4K = true;
+        const isTim4K = streamKey === 'eurosport4k' || stream.manifest.includes('ticdn.it');
+
+        const playerConfig = {
             drm: {
-                clearKeys: stream.keys,
-                advanced: {
-                    'org.w3.org.clearkey': {
-                        'videoRobustness': '',
-                        'audioRobustness': ''
-                    }
+                clearKeys: stream.keys
+            },
+            preferredAudioLanguage: 'it',
+            preferredTextLanguage: 'it',
+            preferredVideoCodecs: ['av01', 'vp9', 'hev1', 'hvc1', 'avc1'],
+            preferredAudioChannelCount: 2,
+            manifest: {
+                defaultPresentationDelay: isTim4K ? 12 : 0,
+                dash: {
+                    clockSyncUri: 'https://time.akamai.com/?iso',
+                    ignoreMinBufferTime: false,
+                    autoCorrectDrift: !isTim4K,
+                    ignoreSuggestedPresentationDelay: isTim4K,
+                    sequenceMode: isTim4K
                 }
             },
-            manifest: {
-                dash: {
-                    ignoreMinBufferTime: true,
-                    autoCorrectTiming: true
-                },
-                updatePeriod: 5
+            mediaSource: {
+                codecSwitchingStrategy: shaka.config.CodecSwitchingStrategy.RELOAD
             },
             streaming: {
-                bufferingGoal: 25,           // Buffer ampio per fluidità
-                rebufferingGoal: 8,
-                safeInSeconds: 10,           // Distanza dal vivo sufficiente, ma non eccessiva
-                stallThreshold: 4,
-                maxNumFailures: 15,
-                failureCallback: function(error) {
-                    console.warn("Segmento fallito, ritento...", error);
-                    player.retry();
+                segmentPrefetchLimit: 0,
+                stallEnabled: true,
+                stallThreshold: 1,
+                stallSkip: 0.1,
+                bufferingGoal: isTim4K ? 4 : 8,
+                rebufferingGoal: isTim4K ? 2 : 2,
+                bufferBehind: isTim4K ? 0 : 30,
+                evictionGoal: isTim4K ? 2 : 1,
+                gapDetectionThreshold: 10,
+                inaccurateManifestTolerance: 10,
+                updateIntervalSeconds: isTim4K ? 1 : 2,
+                retryParameters: {
+                    maxAttempts: isTim4K ? 2 : 6,
+                    baseDelay: 300,
+                    backoffFactor: isTim4K ? 2 : 1.2,
+                    fuzzFactor: 0.3,
+                    timeout: 15000
                 }
             },
             abr: {
                 enabled: true,
-                switchInterval: 5,           // Cambi qualità più lenti
+                bandwidthUpgradeTarget: 0.85,
+                switchInterval: 2,
                 restrictions: {
                     minHeight: 360
                 }
             }
-        });
+        };
+
+        player.configure(playerConfig);
 
         try {
             await player.load(stream.manifest);
-            console.log("Caricato:", streamKey);
+            console.log('caricato ok ' + streamKey);
 
-            // Avvia il controllo stallo
-            const video = document.getElementById('video');
-            startStallWatchdog(video, streamKey);
+            if (preserveFullscreen) {
+                const containerEl = document.getElementById('video-container');
+                const currentFs = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                if (!currentFs && containerEl) {
+                    try {
+                        if (containerEl.requestFullscreen) await containerEl.requestFullscreen();
+                        else if (containerEl.webkitRequestFullscreen) await containerEl.webkitRequestFullscreen();
+                        else if (containerEl.mozRequestFullScreen) await containerEl.mozRequestFullScreen();
+                        else if (containerEl.msRequestFullscreen) await containerEl.msRequestFullscreen();
+                        console.log('fullscreen rimesso');
+                    } catch (fsErr) {
+                        console.warn('no fullscreen ' + fsErr.message);
+                    }
+                }
+            }
+
+            video.play().catch(err => {
+                if (isRecovering || isUnloading || (err && err.message && err.message.includes('removed'))) return;
+                console.warn('play bloccato provo mutato');
+                video.muted = true;
+                video.play().catch(pErr => {
+                    if (isRecovering || isUnloading || (pErr && pErr.message && pErr.message.includes('removed'))) return;
+                    console.error('play fallito ' + pErr.message);
+                });
+            });
+
+            setTimeout(() => {
+                window.__shakaRetries = 0;
+            }, 10000);
+
         } catch (e) {
-            console.error("Errore caricamento:", e);
+            if (e.code !== 1008 && !isUnloading) {
+                console.error('errore load ' + e);
+                handleAutoRecovery(e);
+            }
         }
     }
 
     async function init() {
+        console.log('start player init');
         const video = document.getElementById('video');
         const ui = video['ui'];
         const controls = ui.getControls();
         player = controls.getPlayer();
 
-        // Gestione errori critici (3016)
-        player.addEventListener('error', async (event) => {
-            const error = event.detail;
-            if (error.code === 3016 || error.code === 244002) {
-                console.warn("Errore 3016/244002. Riavvio...");
-                try {
-                    await player.unload();
-                    await loadStream(currentStreamKey);
-                    setTimeout(() => {
-                        video.muted = false;
-                        video.volume = 1.0;
-                        video.play().catch(() => {
-                            video.muted = true;
-                            video.play();
-                            setTimeout(() => {
-                                video.muted = false;
-                                video.volume = 1.0;
-                            }, 100);
-                        });
-                    }, 600);
-                } catch (retryError) {
-                    console.error("Riavvio fallito:", retryError);
-                }
-            }
-        });
+        registerEvents(player);
+        video.addEventListener('playing', onPlaying);
 
-        // Carica subito Eurosport 4K
-        loadStream('eurosport4k');
-
-        // Cambio canale
         document.getElementById('streamSelector').addEventListener('change', (e) => {
             loadStream(e.target.value);
         });
+
+        await loadStream('eurosport4k');
     }
 
     document.addEventListener('shaka-ui-loaded', init);
